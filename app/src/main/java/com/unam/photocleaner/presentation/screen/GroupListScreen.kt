@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -294,31 +295,45 @@ private fun KeywordSearchField(keyword: String, onKeywordChange: (String) -> Uni
     )
 }
 
+private val THUMB_SIZE = 56.dp
+
 @Composable
 private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete: () -> Unit) {
     val isVideo = group.type == GroupType.VIDEO_DUPLICATE || group.type == GroupType.SHORT_VIDEO
+
+    // BEST를 항상 첫 번째로 정렬
+    val sorted = remember(group.id, group.bestPhotoId) {
+        val best = group.photos.find { it.id == group.bestPhotoId }
+        val rest = group.photos.filter { it.id != group.bestPhotoId }
+        if (best != null) listOf(best) + rest else group.photos
+    }
+    // 3장 이하: 전부 표시 / 4장 이상: 앞 2장 + "+N" 슬롯
+    val showCount = if (sorted.size > 3) 2 else sorted.size
+    val overflow = sorted.size - showCount
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // 썸네일 스트립 (최대 3개)
-        group.photos.take(3).forEachIndexed { i, photo ->
-            GroupThumbnail(photo = photo, isBest = photo.id == group.bestPhotoId, isFirst = i == 0)
+        // 썸네일 (모두 같은 크기)
+        sorted.take(showCount).forEach { photo ->
+            GroupThumbnail(photo = photo, isBest = photo.id == group.bestPhotoId)
         }
-        if (group.photos.size > 3) {
+        // 나머지 개수 슬롯
+        if (overflow > 0) {
             Box(
                 modifier = Modifier
-                    .size(if (false) 56.dp else 44.dp)
+                    .size(THUMB_SIZE)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "+${group.photos.size - 3}",
+                    "+$overflow",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -327,7 +342,7 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
 
         Spacer(Modifier.weight(1f))
 
-        // 카운트 + 절약 용량
+        // 카운트 + 절약 용량 (고정)
         Column(horizontalAlignment = Alignment.End) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isVideo) {
@@ -357,7 +372,7 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
             )
         }
 
-        // 퀵 삭제 버튼
+        // 퀵 삭제 버튼 (고정)
         IconButton(
             onClick = onQuickDelete,
             modifier = Modifier.size(40.dp),
@@ -373,21 +388,20 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
 }
 
 @Composable
-private fun GroupThumbnail(photo: Photo, isBest: Boolean, isFirst: Boolean) {
-    val size = if (isFirst) 64.dp else 48.dp
+private fun GroupThumbnail(photo: Photo, isBest: Boolean) {
     Box {
         AsyncImage(
             model = photo.uri,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(size)
+                .size(THUMB_SIZE)
                 .clip(RoundedCornerShape(8.dp)),
         )
         if (photo.isVideo) {
             Box(
                 modifier = Modifier
-                    .size(size)
+                    .size(THUMB_SIZE)
                     .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
