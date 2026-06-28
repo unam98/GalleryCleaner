@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 data class ScanFilter(
     val period: ScanPeriod = ScanPeriod.ALL,
     val minSizeBytes: Long = 0L,
+    val maxPhotoCount: Int? = null,
 ) {
     fun sinceTimestampMs(): Long? = period.days?.let {
         System.currentTimeMillis() - TimeUnit.DAYS.toMillis(it.toLong())
@@ -16,6 +17,14 @@ enum class ScanPeriod(val label: String, val days: Int?) {
     MONTH("최근 1개월", 30),
     THREE_MONTHS("최근 3개월", 90),
     SIX_MONTHS("최근 6개월", 180),
+    ALL("전체", null),
+}
+
+enum class MaxPhotoCount(val label: String, val count: Int?) {
+    LATEST_100("최근 100장", 100),
+    LATEST_300("최근 300장", 300),
+    LATEST_500("최근 500장", 500),
+    LATEST_1000("최근 1000장", 1000),
     ALL("전체", null),
 }
 

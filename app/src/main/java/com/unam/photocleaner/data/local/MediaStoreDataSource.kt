@@ -20,6 +20,7 @@ class MediaStoreDataSource @Inject constructor(
     suspend fun getAllPhotos(
         sinceMs: Long? = null,
         minSizeBytes: Long = 0L,
+        maxCount: Int? = null,
     ): List<Photo> = withContext(Dispatchers.IO) {
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -70,7 +71,7 @@ class MediaStoreDataSource @Inject constructor(
                 )
             }
         }
-        photos
+        if (maxCount != null) photos.takeLast(maxCount) else photos
     }
 
     suspend fun getPhotosSince(timestampMs: Long): List<Photo> = getAllPhotos(sinceMs = timestampMs)

@@ -48,6 +48,7 @@ class MainViewModel @Inject constructor(
                 val photos = mediaStore.getAllPhotos(
                     sinceMs = f.sinceTimestampMs(),
                     minSizeBytes = f.minSizeBytes,
+                    maxCount = f.maxPhotoCount,
                 )
                 _state.value = UiState.Scanning(current = 0, total = photos.size)
                 groupPhotos.execute(photos) { current, total, label ->

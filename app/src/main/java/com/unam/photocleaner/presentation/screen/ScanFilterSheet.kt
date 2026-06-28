@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.unam.photocleaner.domain.model.MaxPhotoCount
 import com.unam.photocleaner.domain.model.MinSize
 import com.unam.photocleaner.domain.model.ScanFilter
 import com.unam.photocleaner.domain.model.ScanPeriod
@@ -56,6 +57,20 @@ fun ScanFilterSheet(
                         selected = filter.period == period,
                         onClick = { onFilterChange(filter.copy(period = period)) },
                         label = { Text(period.label) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Text("사진 장수", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MaxPhotoCount.entries.forEach { option ->
+                    FilterChip(
+                        selected = filter.maxPhotoCount == option.count,
+                        onClick = { onFilterChange(filter.copy(maxPhotoCount = option.count)) },
+                        label = { Text(option.label) },
                     )
                 }
             }
