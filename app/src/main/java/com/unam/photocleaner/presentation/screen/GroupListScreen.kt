@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -29,6 +31,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.unam.photocleaner.domain.model.GroupType
 import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
 
@@ -103,9 +106,30 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit) {
         }
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
+            GroupTypeBadge(group.type)
+            Spacer(Modifier.height(4.dp))
             Text("${group.photos.size}장", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Text(formatBytes(group.potentialSavingBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+@Composable
+private fun GroupTypeBadge(type: GroupType) {
+    val (label, color) = when (type) {
+        GroupType.BURST -> "버스트" to MaterialTheme.colorScheme.tertiary
+        GroupType.SIMILAR -> "AI 유사" to MaterialTheme.colorScheme.secondary
+    }
+    Surface(
+        color = color.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(4.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 

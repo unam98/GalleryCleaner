@@ -40,8 +40,8 @@ class MainViewModel @Inject constructor(
             runCatching {
                 val photos = mediaStore.getAllPhotos()
                 _state.value = UiState.Scanning(current = 0, total = photos.size)
-                groupPhotos.execute(photos) { current, total ->
-                    _state.value = UiState.Scanning(current = current, total = total)
+                groupPhotos.execute(photos) { current, total, label ->
+                    _state.value = UiState.Scanning(current = current, total = total, label = label)
                 }
             }.onSuccess { groups ->
                 _state.value = UiState.Done(
@@ -110,7 +110,7 @@ class MainViewModel @Inject constructor(
 
 sealed interface UiState {
     data object Idle : UiState
-    data class Scanning(val current: Int = 0, val total: Int = 0) : UiState
+    data class Scanning(val current: Int = 0, val total: Int = 0, val label: String = "") : UiState
     data class Done(val groups: List<PhotoGroup>, val totalSavingBytes: Long) : UiState
     data class Error(val message: String) : UiState
 }

@@ -139,12 +139,12 @@ private fun ScanningIndicator(s: UiState.Scanning) {
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "%,d / %,d장 분석 중".format(s.current, s.total),
+                "%,d / %,d장".format(s.current, s.total),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "%.0f%%".format(progress * 100),
+                if (s.label.isNotEmpty()) s.label else "%.0f%%".format(progress * 100),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
