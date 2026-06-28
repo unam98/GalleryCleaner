@@ -66,7 +66,13 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
+    val videoPermissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_VIDEO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
     val permission = rememberPermissionState(permissionName)
+    val videoPermission = rememberPermissionState(videoPermissionName)
 
     // Android 10+ 시스템 삭제 다이얼로그 런처
     val deleteLauncher = rememberLauncherForActivityResult(
@@ -105,7 +111,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("PhotoCleaner") },
+                title = { Text("GalleryCleaner") },
                 actions = {
                     if (state is UiState.Done) {
                         TextButton(onClick = { showFilterSheet = true }) {
@@ -128,10 +134,14 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             when (val s = state) {
                 is UiState.Idle -> {
                     Button(onClick = {
-                        if (permission.status.isGranted) showFilterSheet = true
-                        else permission.launchPermissionRequest()
+                        if (permission.status.isGranted) {
+                            if (!videoPermission.status.isGranted) videoPermission.launchPermissionRequest()
+                            showFilterSheet = true
+                        } else {
+                            permission.launchPermissionRequest()
+                        }
                     }) {
-                        Text(if (permission.status.isGranted) "스캔 시작" else "사진 접근 허용")
+                        Text(if (permission.status.isGranted) "스캔 시작" else "미디어 접근 허용")
                     }
                 }
 
@@ -147,6 +157,10 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     onCategorySelect = { viewModel.setCategory(it) },
                     onKeywordChange = { viewModel.setKeyword(it) },
                     onGroupClick = { group -> viewModel.selectGroup(group) },
+                    onQuickDelete = { group ->
+                        val toDelete = group.photos.filter { it.id != group.bestPhotoId }
+                        if (toDelete.isNotEmpty()) viewModel.requestDelete(toDelete)
+                    },
                 )
 
                 is UiState.Error -> {

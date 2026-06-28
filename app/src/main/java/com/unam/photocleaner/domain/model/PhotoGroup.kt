@@ -11,4 +11,6 @@ data class PhotoGroup(
 enum class GroupType {
     BURST,
     SIMILAR,
+    VIDEO_DUPLICATE,
+    SHORT_VIDEO,
 }

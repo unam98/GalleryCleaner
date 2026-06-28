@@ -9,9 +9,12 @@ import com.unam.photocleaner.data.local.AppPreferences
 import com.unam.photocleaner.data.local.MediaStoreDataSource
 import com.unam.photocleaner.data.local.db.FavoritePhotoDao
 import com.unam.photocleaner.data.local.db.FavoritePhotoEntity
+import com.unam.photocleaner.domain.model.MediaType
+import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
 import com.unam.photocleaner.domain.model.ScanFilter
 import com.unam.photocleaner.domain.usecase.GroupPhotosUseCase
+import com.unam.photocleaner.domain.usecase.GroupVideosUseCase
 import com.unam.photocleaner.util.MlKitLabelExtractor
 import com.unam.photocleaner.work.ScreenshotDetectorJob
 import com.unam.photocleaner.work.WorkScheduler
@@ -36,6 +39,7 @@ class MainViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val mediaStore: MediaStoreDataSource,
     private val groupPhotos: GroupPhotosUseCase,
+    private val groupVideos: GroupVideosUseCase,
     private val labelExtractor: MlKitLabelExtractor,
     private val favoriteDao: FavoritePhotoDao,
     private val workScheduler: WorkScheduler,
@@ -117,15 +121,20 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = UiState.Scanning()
             runCatching {
-                val photos = mediaStore.getAllPhotos(
-                    sinceMs = f.sinceTimestampMs(),
-                    minSizeBytes = f.minSizeBytes,
-                    maxCount = f.maxPhotoCount,
-                )
+                val sinceMs = f.sinceTimestampMs()
+                val photos = if (f.mediaType != MediaType.VIDEO_ONLY)
+                    mediaStore.getAllPhotos(sinceMs = sinceMs, minSizeBytes = f.minSizeBytes, maxCount = f.maxPhotoCount)
+                else emptyList()
+                val videos = if (f.mediaType != MediaType.PHOTO_ONLY)
+                    mediaStore.getAllVideos(sinceMs = sinceMs, minSizeBytes = f.minSizeBytes, maxCount = f.maxPhotoCount)
+                else emptyList()
+
                 _state.value = UiState.Scanning(current = 0, total = photos.size)
-                groupPhotos.execute(photos) { current, total, label ->
+                val photoGroups = groupPhotos.execute(photos) { current, total, label ->
                     _state.value = UiState.Scanning(current = current, total = total, label = label)
                 }
+                val videoGroups = groupVideos.execute(videos)
+                (photoGroups + videoGroups).sortedByDescending { it.potentialSavingBytes }
             }.onSuccess { groups ->
                 _state.value = UiState.Done(
                     groups = groups,
@@ -165,15 +174,17 @@ class MainViewModel @Inject constructor(
     fun selectGroup(group: PhotoGroup) { _selectedGroup.value = group }
     fun clearGroupSelection() { _selectedGroup.value = null }
 
-    fun requestDelete(photoIds: List<Long>) {
+    fun requestDelete(photos: List<Photo>) {
+        val ids = photos.map { it.id }
+        val uris = photos.map { it.uri }
         viewModelScope.launch {
-            pendingDeleteIds = photoIds
+            pendingDeleteIds = ids
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val intentSender = mediaStore.createDeleteRequest(photoIds)
+                val intentSender = mediaStore.createDeleteRequest(uris)
                 _events.emit(MainEvent.RequestSystemDelete(intentSender))
             } else {
-                mediaStore.deletePhotos(photoIds)
-                applyDeletion(photoIds)
+                mediaStore.deleteMedia(uris)
+                applyDeletion(ids)
             }
         }
     }

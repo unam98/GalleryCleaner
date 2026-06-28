@@ -7,6 +7,7 @@ data class ScanFilter(
     val minSizeBytes: Long = 0L,
     val maxPhotoCount: Int? = null,
     val customSinceMs: Long? = null,
+    val mediaType: MediaType = MediaType.ALL,
 ) {
     fun sinceTimestampMs(): Long? = customSinceMs ?: period.days?.let {
         System.currentTimeMillis() - TimeUnit.DAYS.toMillis(it.toLong())
@@ -27,6 +28,10 @@ enum class MaxPhotoCount(val label: String, val count: Int?) {
     LATEST_500("최근 500장", 500),
     LATEST_1000("최근 1000장", 1000),
     ALL("전체", null),
+}
+
+enum class MediaType(val label: String) {
+    ALL("전체"), PHOTO_ONLY("사진만"), VIDEO_ONLY("동영상만"),
 }
 
 enum class MinSize(val label: String, val bytes: Long) {

@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,6 +42,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.unam.photocleaner.domain.model.GroupType
 import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
 import com.unam.photocleaner.presentation.MainViewModel
@@ -55,6 +58,7 @@ fun GroupListScreen(
     onCategorySelect: (String?) -> Unit,
     onKeywordChange: (String) -> Unit,
     onGroupClick: (PhotoGroup) -> Unit,
+    onQuickDelete: (PhotoGroup) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         SavingSummaryCard(
@@ -82,7 +86,11 @@ fun GroupListScreen(
         } else {
             LazyColumn {
                 items(groups, key = { it.id }) { group ->
-                    PhotoGroupRow(group, onClick = { onGroupClick(group) })
+                    PhotoGroupRow(
+                        group = group,
+                        onClick = { onGroupClick(group) },
+                        onQuickDelete = { onQuickDelete(group) },
+                    )
                     HorizontalDivider()
                 }
             }
@@ -195,25 +203,38 @@ private fun KeywordSearchField(keyword: String, onKeywordChange: (String) -> Uni
 }
 
 @Composable
-private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit) {
+private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete: () -> Unit) {
+    val isVideo = group.type == GroupType.VIDEO_DUPLICATE || group.type == GroupType.SHORT_VIDEO
+    val unit = if (isVideo) "개" else "장"
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         group.photos.take(4).forEach { photo ->
             PhotoThumbnail(photo = photo, isBest = photo.id == group.bestPhotoId)
         }
-        if (group.photos.size > 4) {
-            OverflowCount(count = group.photos.size - 4)
-        }
+        if (group.photos.size > 4) OverflowCount(count = group.photos.size - 4)
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
-            Text("${group.photos.size}장", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isVideo) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(2.dp))
+                }
+                Text("${group.photos.size}$unit", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            }
             Text(formatBytes(group.potentialSavingBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+        // BEST 제외 즉시 삭제 버튼
+        IconButton(onClick = onQuickDelete) {
+            Icon(Icons.Default.Delete, contentDescription = "BEST 제외 삭제",
+                tint = MaterialTheme.colorScheme.error)
         }
     }
 }

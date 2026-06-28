@@ -3,6 +3,9 @@ package com.unam.photocleaner.presentation.screen
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -23,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
@@ -38,7 +43,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,7 +53,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -59,24 +69,25 @@ fun GroupDetailScreen(
     group: PhotoGroup,
     favoriteIds: Set<Long>,
     onBack: () -> Unit,
-    onDelete: (List<Long>) -> Unit,
+    onDelete: (List<Photo>) -> Unit,
     onToggleFavorite: (Long) -> Unit,
 ) {
     val selected = remember(group.id) {
         androidx.compose.runtime.mutableStateMapOf<Long, Boolean>().apply {
+            // BEST도 선택 가능 — 초기값 false (권장: 유지), 즐겨찾기는 false (삭제 불가)
             group.photos.forEach { put(it.id, it.id != group.bestPhotoId && it.id !in favoriteIds) }
         }
     }
-    // 즐겨찾기 변경 시 선택 상태 동기화
     remember(favoriteIds) {
         group.photos.filter { it.id in favoriteIds }.forEach { selected[it.id] = false }
     }
 
     var fullScreenIndex by remember { mutableStateOf<Int?>(null) }
 
-    // 즐겨찾기된 사진은 삭제 대상에서 제외
-    val selectedIds = selected.entries.filter { it.value && it.key !in favoriteIds }.map { it.key }
-    val savingBytes = group.photos.filter { it.id in selectedIds }.sumOf { it.size }
+    val selectedPhotos = group.photos.filter { selected[it.id] == true && it.id !in favoriteIds }
+    val savingBytes = selectedPhotos.sumOf { it.size }
+    val isVideo = group.photos.firstOrNull()?.isVideo == true
+    val unit = if (isVideo) "개" else "장"
 
     // 풀스크린 뷰어가 열려 있으면 뒤로가기로 먼저 닫기
     BackHandler(enabled = fullScreenIndex != null) { fullScreenIndex = null }
@@ -85,7 +96,7 @@ fun GroupDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("${group.photos.size}장 그룹") },
+                title = { Text("${group.photos.size}$unit 그룹") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "뒤로")
@@ -94,10 +105,10 @@ fun GroupDetailScreen(
             )
         },
         bottomBar = {
-            if (selectedIds.isNotEmpty()) {
+            if (selectedPhotos.isNotEmpty()) {
                 Surface(shadowElevation = 8.dp) {
                     Button(
-                        onClick = { onDelete(selectedIds) },
+                        onClick = { onDelete(selectedPhotos) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -105,7 +116,7 @@ fun GroupDetailScreen(
                             containerColor = MaterialTheme.colorScheme.error,
                         ),
                     ) {
-                        Text("${selectedIds.size}장 삭제  •  ${formatBytes(savingBytes)} 절약")
+                        Text("${selectedPhotos.size}$unit 삭제  •  ${formatBytes(savingBytes)} 절약")
                     }
                 }
             }
@@ -131,7 +142,7 @@ fun GroupDetailScreen(
                     isFavorite = isFavorite,
                     isSelected = isSelected,
                     onViewFull = { fullScreenIndex = index },
-                    onToggle = { if (!isBest && !isFavorite) selected[photo.id] = !isSelected },
+                    onToggle = { if (!isFavorite) selected[photo.id] = !isSelected },
                     onToggleFavorite = { onToggleFavorite(photo.id) },
                 )
             }
@@ -172,22 +183,65 @@ private fun PhotoFullScreenViewer(
     val isFavorite = current.id in favoriteIds
     val selected = isSelected(current.id)
 
+    // 핀치줌 상태 (페이지 이동 시 리셋)
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(pagerState.currentPage) { scale = 1f; offset = Offset.Zero }
+
+    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+        scale = (scale * zoomChange).coerceIn(1f, 5f)
+        offset = if (scale > 1f) offset + panChange else Offset.Zero
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        // 사진
+        // 사진/동영상 썸네일
         HorizontalPager(
             state = pagerState,
+            userScrollEnabled = scale <= 1f,  // 확대 중엔 스와이프 비활성화
             modifier = Modifier.fillMaxSize(),
         ) { page ->
-            AsyncImage(
-                model = photos[page].uri,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-            )
+            Box(Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = photos[page].uri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = if (page == pagerState.currentPage) scale else 1f,
+                            scaleY = if (page == pagerState.currentPage) scale else 1f,
+                            translationX = if (page == pagerState.currentPage) offset.x else 0f,
+                            translationY = if (page == pagerState.currentPage) offset.y else 0f,
+                        )
+                        .transformable(
+                            state = transformableState,
+                            enabled = page == pagerState.currentPage,
+                        )
+                        .pointerInput(page) {
+                            detectTapGestures(onDoubleTap = {
+                                if (page == pagerState.currentPage) {
+                                    if (scale > 1f) { scale = 1f; offset = Offset.Zero }
+                                    else scale = 2.5f
+                                }
+                            })
+                        },
+                )
+                // 동영상 표시
+                if (photos[page].isVideo) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(64.dp)
+                            .align(Alignment.Center),
+                    )
+                }
+            }
         }
 
         // 상단 바
@@ -242,13 +296,15 @@ private fun PhotoFullScreenViewer(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                formatBytes(current.size),
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Row {
+                Text(formatBytes(current.size), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                if (current.isVideo && current.duration > 0) {
+                    Spacer(Modifier.size(8.dp))
+                    Text(formatDuration(current.duration), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Spacer(Modifier.height(8.dp))
-            if (!isBest) {
+            if (!isFavorite) {
                 Button(
                     onClick = { onToggle(current.id) },
                     colors = ButtonDefaults.buttonColors(
@@ -257,15 +313,22 @@ private fun PhotoFullScreenViewer(
                     ),
                 ) {
                     Text(
-                        if (selected) "삭제 선택됨 ✓" else "삭제 선택 안됨",
+                        if (selected) "삭제 선택됨 ✓" else if (isBest) "BEST — 삭제 선택 안됨" else "삭제 선택 안됨",
                         color = Color.White,
                     )
                 }
             } else {
-                Text("이 사진은 유지됩니다", color = MaterialTheme.colorScheme.primary)
+                Text("즐겨찾기 설정 — 삭제 불가", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
+}
+
+private fun formatDuration(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
 }
 
 @Composable
@@ -301,8 +364,8 @@ private fun PhotoSelectCell(
             )
         }
 
-        // 체크박스 (BEST·즐겨찾기는 비활성화)
-        if (!isBest && !isFavorite) {
+        // 체크박스 (즐겨찾기만 비활성화, BEST는 허용)
+        if (!isFavorite) {
             Checkbox(
                 checked = isSelected,
                 onCheckedChange = { onToggle() },
@@ -328,6 +391,18 @@ private fun PhotoSelectCell(
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                 )
             }
+        }
+
+        // 동영상 재생 아이콘 (중앙)
+        if (photo.isVideo) {
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier
+                    .size(36.dp)
+                    .align(Alignment.Center),
+            )
         }
 
         // 즐겨찾기 별 아이콘 (좌하단)
