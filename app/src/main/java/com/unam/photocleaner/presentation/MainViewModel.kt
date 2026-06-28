@@ -36,10 +36,13 @@ class MainViewModel @Inject constructor(
 
     fun scan() {
         viewModelScope.launch {
-            _state.value = UiState.Scanning
+            _state.value = UiState.Scanning()
             runCatching {
                 val photos = mediaStore.getAllPhotos()
-                groupPhotos.execute(photos)
+                _state.value = UiState.Scanning(current = 0, total = photos.size)
+                groupPhotos.execute(photos) { current, total ->
+                    _state.value = UiState.Scanning(current = current, total = total)
+                }
             }.onSuccess { groups ->
                 _state.value = UiState.Done(
                     groups = groups,
@@ -107,7 +110,7 @@ class MainViewModel @Inject constructor(
 
 sealed interface UiState {
     data object Idle : UiState
-    data object Scanning : UiState
+    data class Scanning(val current: Int = 0, val total: Int = 0) : UiState
     data class Done(val groups: List<PhotoGroup>, val totalSavingBytes: Long) : UiState
     data class Error(val message: String) : UiState
 }

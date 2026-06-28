@@ -10,11 +10,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -97,13 +101,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     }
                 }
 
-                is UiState.Scanning -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(16.dp))
-                        Text("사진 분석 중...")
-                    }
-                }
+                is UiState.Scanning -> ScanningIndicator(s)
 
                 is UiState.Done -> GroupListScreen(
                     groups = s.groups,
@@ -119,6 +117,37 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ScanningIndicator(s: UiState.Scanning) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(260.dp),
+    ) {
+        if (s.total == 0) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+            Text("사진 목록 불러오는 중...", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            val progress = s.current.toFloat() / s.total
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "%,d / %,d장 분석 중".format(s.current, s.total),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "%.0f%%".format(progress * 100),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

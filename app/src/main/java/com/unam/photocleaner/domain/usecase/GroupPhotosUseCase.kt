@@ -23,20 +23,27 @@ class GroupPhotosUseCase @Inject constructor(
     private val BURST_WINDOW_MS = 3_000L
     private val SIMILARITY_THRESHOLD = 10
 
-    suspend fun execute(photos: List<Photo>): List<PhotoGroup> = withContext(Dispatchers.Default) {
-        val hashes = computeHashes(photos)
+    suspend fun execute(
+        photos: List<Photo>,
+        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
+    ): List<PhotoGroup> = withContext(Dispatchers.Default) {
+        val hashes = computeHashes(photos, onProgress)
         findGroups(photos, hashes)
     }
 
-    private suspend fun computeHashes(photos: List<Photo>): Map<Long, PhotoHashEntity> {
+    private suspend fun computeHashes(
+        photos: List<Photo>,
+        onProgress: (Int, Int) -> Unit,
+    ): Map<Long, PhotoHashEntity> {
         val result = mutableMapOf<Long, PhotoHashEntity>()
-        for (photo in photos) {
+        photos.forEachIndexed { index, photo ->
+            onProgress(index + 1, photos.size)
             val cached = photoHashDao.get(photo.id)
             if (cached != null) {
                 result[photo.id] = cached
-                continue
+                return@forEachIndexed
             }
-            val entity = decodeAndHash(photo) ?: continue
+            val entity = decodeAndHash(photo) ?: return@forEachIndexed
             photoHashDao.insert(entity)
             result[photo.id] = entity
         }
