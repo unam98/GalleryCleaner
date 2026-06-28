@@ -3,6 +3,8 @@ package com.unam.photocleaner.presentation
 import android.content.Context
 import android.content.IntentSender
 import android.os.Build
+import android.os.Parcelable
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unam.photocleaner.data.local.AppPreferences
@@ -32,10 +34,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.parcelize.Parcelize
 import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context,
     private val mediaStore: MediaStoreDataSource,
     private val groupPhotos: GroupPhotosUseCase,
@@ -46,43 +50,49 @@ class MainViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<UiState>(UiState.Idle)
+    // 프로세스 재시작 시 Done 상태 복원, Scanning/Error는 Idle로 초기화
+    private val _state = MutableStateFlow<UiState>(
+        when (val saved = savedStateHandle.get<UiState>(KEY_STATE)) {
+            is UiState.Done -> saved
+            else -> UiState.Idle
+        }
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private val _filter = MutableStateFlow(ScanFilter())
+    private val _filter = MutableStateFlow(savedStateHandle.get<ScanFilter>(KEY_FILTER) ?: ScanFilter())
     val filter: StateFlow<ScanFilter> = _filter.asStateFlow()
 
-    private val _selectedGroup = MutableStateFlow<PhotoGroup?>(null)
+    private val _selectedGroup = MutableStateFlow<PhotoGroup?>(
+        savedStateHandle.get<String>(KEY_SELECTED_GROUP_ID)?.let { id ->
+            (_state.value as? UiState.Done)?.groups?.find { it.id == id }
+        }
+    )
     val selectedGroup: StateFlow<PhotoGroup?> = _selectedGroup.asStateFlow()
 
     private val _events = MutableSharedFlow<MainEvent>()
     val events: SharedFlow<MainEvent> = _events.asSharedFlow()
 
-    // ML Kit 레이블 캐시 (photoId → labels)
     private val _photoLabels = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
 
     private val _isLabeling = MutableStateFlow(false)
     val isLabeling: StateFlow<Boolean> = _isLabeling.asStateFlow()
 
-    private val _selectedCategory = MutableStateFlow<String?>(null)
+    private val _selectedCategory = MutableStateFlow<String?>(savedStateHandle.get<String>(KEY_CATEGORY))
     val selectedCategory: StateFlow<String?> = _selectedCategory.asStateFlow()
 
-    private val _keyword = MutableStateFlow("")
+    private val _keyword = MutableStateFlow(savedStateHandle.get<String>(KEY_KEYWORD) ?: "")
     val keyword: StateFlow<String> = _keyword.asStateFlow()
 
-    // 즐겨찾기 (Room Flow)
     val favoriteIds: StateFlow<Set<Long>> = favoriteDao.observeAll()
         .map { it.toHashSet() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    // 설정
     private val _periodicNotification = MutableStateFlow(appPreferences.periodicScanNotification)
     val periodicNotification: StateFlow<Boolean> = _periodicNotification.asStateFlow()
 
     private val _screenshotNotification = MutableStateFlow(appPreferences.screenshotNotification)
     val screenshotNotification: StateFlow<Boolean> = _screenshotNotification.asStateFlow()
 
-    // 필터 적용된 그룹 목록
     val filteredGroups: StateFlow<List<PhotoGroup>> = combine(
         _state, _photoLabels, _selectedCategory, _keyword,
     ) { state, labels, category, keyword ->
@@ -105,11 +115,40 @@ class MainViewModel @Inject constructor(
 
     private var pendingDeleteIds: List<Long> = emptyList()
 
+    init {
+        // 복원된 Done 상태에서 레이블링 재시작 (ML 레이블은 메모리에만 존재)
+        (_state.value as? UiState.Done)?.let { startLabeling(it.groups) }
+
+        // Scanning 제외하고 상태 변화마다 저장 (Scanning은 복원 불가 → Idle로)
+        viewModelScope.launch {
+            _state.collect { state ->
+                if (state !is UiState.Scanning) {
+                    try {
+                        savedStateHandle[KEY_STATE] = state
+                    } catch (_: Exception) {
+                        // 스캔 결과가 Bundle 한계 초과 시 저장 생략
+                    }
+                }
+            }
+        }
+    }
+
     // ── 스캔 ──────────────────────────────────────────────────────────────────
 
-    fun updateFilter(filter: ScanFilter) { _filter.value = filter }
-    fun setCategory(category: String?) { _selectedCategory.value = category }
-    fun setKeyword(keyword: String) { _keyword.value = keyword }
+    fun updateFilter(filter: ScanFilter) {
+        _filter.value = filter
+        savedStateHandle[KEY_FILTER] = filter
+    }
+
+    fun setCategory(category: String?) {
+        _selectedCategory.value = category
+        savedStateHandle[KEY_CATEGORY] = category
+    }
+
+    fun setKeyword(keyword: String) {
+        _keyword.value = keyword
+        savedStateHandle[KEY_KEYWORD] = keyword
+    }
 
     fun scan(overrideSinceMs: Long? = null) {
         val f = if (overrideSinceMs != null) ScanFilter(customSinceMs = overrideSinceMs) else _filter.value
@@ -117,6 +156,8 @@ class MainViewModel @Inject constructor(
         _keyword.value = ""
         _photoLabels.value = emptyMap()
         _isLabeling.value = false
+        savedStateHandle.remove<String>(KEY_CATEGORY)
+        savedStateHandle.remove<String>(KEY_KEYWORD)
 
         viewModelScope.launch {
             _state.value = UiState.Scanning()
@@ -171,8 +212,15 @@ class MainViewModel @Inject constructor(
 
     // ── 그룹/삭제 ────────────────────────────────────────────────────────────
 
-    fun selectGroup(group: PhotoGroup) { _selectedGroup.value = group }
-    fun clearGroupSelection() { _selectedGroup.value = null }
+    fun selectGroup(group: PhotoGroup) {
+        _selectedGroup.value = group
+        savedStateHandle[KEY_SELECTED_GROUP_ID] = group.id
+    }
+
+    fun clearGroupSelection() {
+        _selectedGroup.value = null
+        savedStateHandle.remove<String>(KEY_SELECTED_GROUP_ID)
+    }
 
     fun requestDelete(photos: List<Photo>) {
         val ids = photos.map { it.id }
@@ -211,6 +259,7 @@ class MainViewModel @Inject constructor(
         )
         val groupId = _selectedGroup.value?.id
         _selectedGroup.value = updatedGroups.find { it.id == groupId }
+        if (_selectedGroup.value == null) savedStateHandle.remove<String>(KEY_SELECTED_GROUP_ID)
     }
 
     // ── 즐겨찾기 ─────────────────────────────────────────────────────────────
@@ -243,6 +292,12 @@ class MainViewModel @Inject constructor(
     // ── 카테고리 정의 ────────────────────────────────────────────────────────
 
     companion object {
+        private const val KEY_STATE = "ui_state"
+        private const val KEY_FILTER = "scan_filter"
+        private const val KEY_CATEGORY = "category"
+        private const val KEY_KEYWORD = "keyword"
+        private const val KEY_SELECTED_GROUP_ID = "selected_group_id"
+
         val CATEGORY_LABELS = linkedMapOf(
             "인물" to setOf("Person", "Face", "Human", "People", "Man", "Woman", "Child", "Forehead", "Smile", "Selfie", "Hair"),
             "음식" to setOf("Food", "Dish", "Meal", "Cuisine", "Drink", "Ingredient", "Fast food", "Recipe", "Baking", "Vegetable", "Fruit", "Snack"),
@@ -264,11 +319,18 @@ class MainViewModel @Inject constructor(
     }
 }
 
-sealed interface UiState {
-    data object Idle : UiState
-    data class Scanning(val current: Int = 0, val total: Int = 0, val label: String = "") : UiState
-    data class Done(val groups: List<PhotoGroup>, val totalSavingBytes: Long) : UiState
-    data class Error(val message: String) : UiState
+sealed class UiState : Parcelable {
+    @Parcelize
+    data object Idle : UiState()
+
+    @Parcelize
+    data class Scanning(val current: Int = 0, val total: Int = 0, val label: String = "") : UiState()
+
+    @Parcelize
+    data class Done(val groups: List<PhotoGroup>, val totalSavingBytes: Long) : UiState()
+
+    @Parcelize
+    data class Error(val message: String) : UiState()
 }
 
 sealed interface MainEvent {

@@ -45,5 +45,14 @@
             </intent-filter>
         </receiver>
 
+        <!-- 부팅 후 스크린샷 감지 Job 재등록 -->
+        <receiver
+            android:name=".notification.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>

@@ -95,6 +95,16 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val permission = rememberPermissionState(permissionName)
     val videoPermission = rememberPermissionState(videoPermissionName)
 
+    // POST_NOTIFICATIONS 권한 요청 (Android 13+, 미허용 시 스크린샷 알림 무음 실패)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val notifPermission = rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
+        LaunchedEffect(notifPermission.status.isGranted) {
+            if (!notifPermission.status.isGranted) {
+                notifPermission.launchPermissionRequest()
+            }
+        }
+    }
+
     val deleteLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->

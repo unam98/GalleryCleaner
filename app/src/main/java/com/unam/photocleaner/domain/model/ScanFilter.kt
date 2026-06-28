@@ -1,14 +1,17 @@
 package com.unam.photocleaner.domain.model
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
 import java.util.concurrent.TimeUnit
 
+@Parcelize
 data class ScanFilter(
     val period: ScanPeriod = ScanPeriod.ALL,
     val minSizeBytes: Long = 0L,
     val maxPhotoCount: Int? = null,
     val customSinceMs: Long? = null,
     val mediaType: MediaType = MediaType.ALL,
-) {
+) : Parcelable {
     fun sinceTimestampMs(): Long? = customSinceMs ?: period.days?.let {
         System.currentTimeMillis() - TimeUnit.DAYS.toMillis(it.toLong())
     }
