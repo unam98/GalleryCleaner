@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "com.unam.photocleaner"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.unam.photocleaner"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
     }
@@ -33,6 +33,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 }
 
@@ -67,9 +72,8 @@ dependencies {
     // Image
     implementation(libs.coil.compose)
 
-    // TFLite (M5에서 활성화)
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.support)
+    // LiteRT (구 TFLite) — 16KB page size 지원
+    implementation(libs.litert)
 
     // Permissions
     implementation(libs.accompanist.permissions)
