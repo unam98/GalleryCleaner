@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -51,7 +55,11 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val isLabeling by viewModel.isLabeling.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val keyword by viewModel.keyword.collectAsStateWithLifecycle()
+    val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
+    val periodicNotification by viewModel.periodicNotification.collectAsStateWithLifecycle()
+    val screenshotNotification by viewModel.screenshotNotification.collectAsStateWithLifecycle()
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -86,8 +94,10 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     if (selectedGroup != null) {
         GroupDetailScreen(
             group = selectedGroup!!,
+            favoriteIds = favoriteIds,
             onBack = { viewModel.clearGroupSelection() },
             onDelete = { ids -> viewModel.requestDelete(ids) },
+            onToggleFavorite = { viewModel.toggleFavorite(it) },
         )
         return
     }
@@ -101,6 +111,9 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                         TextButton(onClick = { showFilterSheet = true }) {
                             Text("재스캔")
                         }
+                    }
+                    IconButton(onClick = { showSettingsSheet = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "설정")
                     }
                 },
             )
@@ -153,6 +166,16 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             onFilterChange = { viewModel.updateFilter(it) },
             onScan = { viewModel.scan() },
             onDismiss = { showFilterSheet = false },
+        )
+    }
+
+    if (showSettingsSheet) {
+        SettingsSheet(
+            periodicNotification = periodicNotification,
+            screenshotNotification = screenshotNotification,
+            onPeriodicNotificationChange = { viewModel.setPeriodicNotification(it) },
+            onScreenshotNotificationChange = { viewModel.setScreenshotNotification(it) },
+            onDismiss = { showSettingsSheet = false },
         )
     }
 }

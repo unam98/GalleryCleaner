@@ -1,15 +1,22 @@
 package com.unam.photocleaner.presentation
 
+import android.content.Context
 import android.content.IntentSender
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.unam.photocleaner.data.local.AppPreferences
 import com.unam.photocleaner.data.local.MediaStoreDataSource
+import com.unam.photocleaner.data.local.db.FavoritePhotoDao
+import com.unam.photocleaner.data.local.db.FavoritePhotoEntity
 import com.unam.photocleaner.domain.model.PhotoGroup
 import com.unam.photocleaner.domain.model.ScanFilter
 import com.unam.photocleaner.domain.usecase.GroupPhotosUseCase
 import com.unam.photocleaner.util.MlKitLabelExtractor
+import com.unam.photocleaner.work.ScreenshotDetectorJob
+import com.unam.photocleaner.work.WorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,15 +26,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val mediaStore: MediaStoreDataSource,
     private val groupPhotos: GroupPhotosUseCase,
     private val labelExtractor: MlKitLabelExtractor,
+    private val favoriteDao: FavoritePhotoDao,
+    private val workScheduler: WorkScheduler,
+    private val appPreferences: AppPreferences,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
@@ -42,20 +54,29 @@ class MainViewModel @Inject constructor(
     private val _events = MutableSharedFlow<MainEvent>()
     val events: SharedFlow<MainEvent> = _events.asSharedFlow()
 
-    // 스캔 후 ML Kit 레이블 (photoId → labels)
+    // ML Kit 레이블 캐시 (photoId → labels)
     private val _photoLabels = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
 
-    // ML Kit 레이블링 진행 여부
     private val _isLabeling = MutableStateFlow(false)
     val isLabeling: StateFlow<Boolean> = _isLabeling.asStateFlow()
 
-    // 카테고리 필터 (null = 전체)
     private val _selectedCategory = MutableStateFlow<String?>(null)
     val selectedCategory: StateFlow<String?> = _selectedCategory.asStateFlow()
 
-    // 키워드 필터
     private val _keyword = MutableStateFlow("")
     val keyword: StateFlow<String> = _keyword.asStateFlow()
+
+    // 즐겨찾기 (Room Flow)
+    val favoriteIds: StateFlow<Set<Long>> = favoriteDao.observeAll()
+        .map { it.toHashSet() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    // 설정
+    private val _periodicNotification = MutableStateFlow(appPreferences.periodicScanNotification)
+    val periodicNotification: StateFlow<Boolean> = _periodicNotification.asStateFlow()
+
+    private val _screenshotNotification = MutableStateFlow(appPreferences.screenshotNotification)
+    val screenshotNotification: StateFlow<Boolean> = _screenshotNotification.asStateFlow()
 
     // 필터 적용된 그룹 목록
     val filteredGroups: StateFlow<List<PhotoGroup>> = combine(
@@ -63,14 +84,11 @@ class MainViewModel @Inject constructor(
     ) { state, labels, category, keyword ->
         val groups = (state as? UiState.Done)?.groups ?: return@combine emptyList()
         if (category == null && keyword.isBlank()) return@combine groups
-
         groups.filter { group ->
             group.photos.any { photo ->
                 val photoLabels = labels[photo.id] ?: emptyList()
                 val matchesCategory = category == null ||
-                    CATEGORY_LABELS[category]?.any { labelWord ->
-                        photoLabels.any { it.equals(labelWord, ignoreCase = true) }
-                    } == true
+                    CATEGORY_LABELS[category]?.any { l -> photoLabels.any { it.equals(l, ignoreCase = true) } } == true
                 val matchesKeyword = keyword.isBlank() || run {
                     val enKeyword = KO_EN_MAP[keyword.trim().lowercase()] ?: keyword.trim()
                     photoLabels.any { it.contains(enKeyword, ignoreCase = true) } ||
@@ -83,10 +101,10 @@ class MainViewModel @Inject constructor(
 
     private var pendingDeleteIds: List<Long> = emptyList()
 
+    // ── 스캔 ──────────────────────────────────────────────────────────────────
+
     fun updateFilter(filter: ScanFilter) { _filter.value = filter }
-
     fun setCategory(category: String?) { _selectedCategory.value = category }
-
     fun setKeyword(keyword: String) { _keyword.value = keyword }
 
     fun scan(overrideSinceMs: Long? = null) {
@@ -142,13 +160,10 @@ class MainViewModel @Inject constructor(
         _isLabeling.value = false
     }
 
-    fun selectGroup(group: PhotoGroup) {
-        _selectedGroup.value = group
-    }
+    // ── 그룹/삭제 ────────────────────────────────────────────────────────────
 
-    fun clearGroupSelection() {
-        _selectedGroup.value = null
-    }
+    fun selectGroup(group: PhotoGroup) { _selectedGroup.value = group }
+    fun clearGroupSelection() { _selectedGroup.value = null }
 
     fun requestDelete(photoIds: List<Long>) {
         viewModelScope.launch {
@@ -171,7 +186,6 @@ class MainViewModel @Inject constructor(
     private fun applyDeletion(deletedIds: List<Long>) {
         val current = _state.value as? UiState.Done ?: return
         val deletedSet = deletedIds.toHashSet()
-
         val updatedGroups = current.groups.mapNotNull { group ->
             val remaining = group.photos.filterNot { it.id in deletedSet }
             if (remaining.size < 2) return@mapNotNull null
@@ -180,7 +194,6 @@ class MainViewModel @Inject constructor(
             val newSaving = remaining.sumOf { it.size } - (remaining.find { it.id == newBestId }?.size ?: 0L)
             group.copy(photos = remaining, bestPhotoId = newBestId, potentialSavingBytes = newSaving)
         }
-
         _state.value = current.copy(
             groups = updatedGroups,
             totalSavingBytes = updatedGroups.sumOf { it.potentialSavingBytes },
@@ -188,6 +201,35 @@ class MainViewModel @Inject constructor(
         val groupId = _selectedGroup.value?.id
         _selectedGroup.value = updatedGroups.find { it.id == groupId }
     }
+
+    // ── 즐겨찾기 ─────────────────────────────────────────────────────────────
+
+    fun toggleFavorite(photoId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (photoId in favoriteIds.value) {
+                favoriteDao.delete(photoId)
+            } else {
+                favoriteDao.insert(FavoritePhotoEntity(photoId))
+            }
+        }
+    }
+
+    // ── 설정 ─────────────────────────────────────────────────────────────────
+
+    fun setPeriodicNotification(enabled: Boolean) {
+        appPreferences.periodicScanNotification = enabled
+        _periodicNotification.value = enabled
+        if (enabled) workScheduler.schedulePeriodicScan() else workScheduler.cancelScan()
+    }
+
+    fun setScreenshotNotification(enabled: Boolean) {
+        appPreferences.screenshotNotification = enabled
+        _screenshotNotification.value = enabled
+        if (enabled) ScreenshotDetectorJob.schedule(context)
+        else ScreenshotDetectorJob.cancel(context)
+    }
+
+    // ── 카테고리 정의 ────────────────────────────────────────────────────────
 
     companion object {
         val CATEGORY_LABELS = linkedMapOf(
@@ -201,7 +243,7 @@ class MainViewModel @Inject constructor(
 
         private val KO_EN_MAP = mapOf(
             "인물" to "person", "사람" to "person", "얼굴" to "face",
-            "음식" to "food", "밥" to "food", "먹" to "food", "요리" to "cuisine",
+            "음식" to "food", "밥" to "food", "요리" to "cuisine",
             "풍경" to "landscape", "하늘" to "sky", "산" to "mountain", "바다" to "ocean", "꽃" to "flower", "나무" to "tree",
             "동물" to "animal", "강아지" to "dog", "개" to "dog", "고양이" to "cat", "새" to "bird",
             "스크린샷" to "screenshot", "화면" to "screenshot",

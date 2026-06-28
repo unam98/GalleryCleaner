@@ -5,28 +5,33 @@ import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
 
-object WorkScheduler {
-
-    fun schedulePeriodicScan(context: Context) {
+@Singleton
+class WorkScheduler @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    fun schedulePeriodicScan() {
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(true)
             .build()
 
         val request = PeriodicWorkRequestBuilder<PhotoScanWorker>(6, TimeUnit.HOURS)
             .setConstraints(constraints)
-            .setInitialDelay(30, TimeUnit.MINUTES)  // 앱 첫 실행 후 30분 뒤부터
+            .setInitialDelay(30, TimeUnit.MINUTES)
             .build()
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PhotoScanWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,  // 이미 스케줄된 경우 유지
+            ExistingPeriodicWorkPolicy.KEEP,
             request,
         )
     }
 
-    fun cancelScan(context: Context) {
+    fun cancelScan() {
         WorkManager.getInstance(context).cancelUniqueWork(PhotoScanWorker.WORK_NAME)
     }
 }

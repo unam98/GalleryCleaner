@@ -22,54 +22,82 @@ class NotificationHelper @Inject constructor(
 ) {
     fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "사진 정리 알림",
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ).apply {
-                description = "유사·중복 사진 발견 시 알림"
-            }
-            context.getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(channel)
+            val nm = context.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_SCAN, "사진 정리 알림", NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "유사·중복 사진 발견 시 알림" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_SCREENSHOT, "스크린샷 중요 표시", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "스크린샷 저장 시 중요 여부 묻는 알림" }
+            )
         }
     }
 
+    private fun hasNotifyPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+        return true
+    }
+
     fun showDuplicateFound(groupCount: Int, savingBytes: Long, sinceMs: Long) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-        ) return
+        if (!hasNotifyPermission()) return
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(MainActivity.EXTRA_AUTO_SCAN, true)
             putExtra(MainActivity.EXTRA_SCAN_SINCE_MS, sinceMs)
         }
-        val pendingIntent = PendingIntent.getActivity(
-            context, 0, intent,
+        val pi = PendingIntent.getActivity(context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+        val body = if (savingBytes > 0) "${groupCount}그룹 발견 · ${formatBytes(savingBytes)} 정리 가능해요"
+                   else "${groupCount}그룹의 유사 사진이 발견됐어요"
+
+        NotificationManagerCompat.from(context).notify(
+            NOTIF_SCAN,
+            NotificationCompat.Builder(context, CHANNEL_SCAN)
+                .setSmallIcon(android.R.drawable.ic_menu_gallery)
+                .setContentTitle("유사 사진 발견")
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    fun showScreenshotFavoritePrompt(photoId: Long, displayName: String) {
+        if (!hasNotifyPermission()) return
+
+        val favoriteIntent = Intent(context, FavoriteActionReceiver::class.java).apply {
+            action = FavoriteActionReceiver.ACTION_MARK_FAVORITE
+            putExtra(FavoriteActionReceiver.EXTRA_PHOTO_ID, photoId)
+        }
+        val favoritePi = PendingIntent.getBroadcast(
+            context, photoId.toInt(), favoriteIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val body = if (savingBytes > 0) {
-            "${groupCount}그룹 발견 · ${formatBytes(savingBytes)} 정리 가능해요"
-        } else {
-            "${groupCount}그룹의 유사 사진이 발견됐어요"
-        }
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .setContentTitle("유사 사진 발견")
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .build()
-
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        val name = displayName.ifEmpty { "스크린샷" }
+        NotificationManagerCompat.from(context).notify(
+            NOTIF_SCREENSHOT,
+            NotificationCompat.Builder(context, CHANNEL_SCREENSHOT)
+                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentTitle("스크린샷 저장됨")
+                .setContentText("\"$name\" — 중요 사진으로 설정할까요?")
+                .addAction(0, "⭐ 중요로 설정", favoritePi)
+                .setAutoCancel(true)
+                .build(),
+        )
     }
 
     companion object {
-        const val CHANNEL_ID = "photo_cleaner_duplicates"
-        const val NOTIFICATION_ID = 1001
+        const val CHANNEL_SCAN = "photo_cleaner_duplicates"
+        const val CHANNEL_SCREENSHOT = "photo_cleaner_screenshot"
+        const val NOTIF_SCAN = 1001
+        const val NOTIF_SCREENSHOT = 1002
     }
 }

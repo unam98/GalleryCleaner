@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -55,17 +57,25 @@ import com.unam.photocleaner.domain.model.PhotoGroup
 @Composable
 fun GroupDetailScreen(
     group: PhotoGroup,
+    favoriteIds: Set<Long>,
     onBack: () -> Unit,
     onDelete: (List<Long>) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
 ) {
     val selected = remember(group.id) {
         androidx.compose.runtime.mutableStateMapOf<Long, Boolean>().apply {
-            group.photos.forEach { put(it.id, it.id != group.bestPhotoId) }
+            group.photos.forEach { put(it.id, it.id != group.bestPhotoId && it.id !in favoriteIds) }
         }
     }
+    // 즐겨찾기 변경 시 선택 상태 동기화
+    remember(favoriteIds) {
+        group.photos.filter { it.id in favoriteIds }.forEach { selected[it.id] = false }
+    }
+
     var fullScreenIndex by remember { mutableStateOf<Int?>(null) }
 
-    val selectedIds = selected.entries.filter { it.value }.map { it.key }
+    // 즐겨찾기된 사진은 삭제 대상에서 제외
+    val selectedIds = selected.entries.filter { it.value && it.key !in favoriteIds }.map { it.key }
     val savingBytes = group.photos.filter { it.id in selectedIds }.sumOf { it.size }
 
     // 풀스크린 뷰어가 열려 있으면 뒤로가기로 먼저 닫기
@@ -113,13 +123,16 @@ fun GroupDetailScreen(
             items(group.photos, key = { it.id }) { photo ->
                 val index = group.photos.indexOf(photo)
                 val isBest = photo.id == group.bestPhotoId
+                val isFavorite = photo.id in favoriteIds
                 val isSelected = selected[photo.id] == true
                 PhotoSelectCell(
                     photo = photo,
                     isBest = isBest,
+                    isFavorite = isFavorite,
                     isSelected = isSelected,
                     onViewFull = { fullScreenIndex = index },
-                    onToggle = { if (!isBest) selected[photo.id] = !isSelected },
+                    onToggle = { if (!isBest && !isFavorite) selected[photo.id] = !isSelected },
+                    onToggleFavorite = { onToggleFavorite(photo.id) },
                 )
             }
         }
@@ -131,10 +144,12 @@ fun GroupDetailScreen(
             photos = group.photos,
             initialIndex = fullScreenIndex!!,
             bestPhotoId = group.bestPhotoId,
+            favoriteIds = favoriteIds,
             isSelected = { id -> selected[id] == true },
             onToggle = { id ->
-                if (id != group.bestPhotoId) selected[id] = !(selected[id] ?: false)
+                if (id != group.bestPhotoId && id !in favoriteIds) selected[id] = !(selected[id] ?: false)
             },
+            onToggleFavorite = onToggleFavorite,
             onDismiss = { fullScreenIndex = null },
         )
     }
@@ -145,13 +160,16 @@ private fun PhotoFullScreenViewer(
     photos: List<Photo>,
     initialIndex: Int,
     bestPhotoId: Long,
+    favoriteIds: Set<Long>,
     isSelected: (Long) -> Boolean,
     onToggle: (Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialIndex) { photos.size }
     val current = photos[pagerState.currentPage]
     val isBest = current.id == bestPhotoId
+    val isFavorite = current.id in favoriteIds
     val selected = isSelected(current.id)
 
     Box(
@@ -203,6 +221,13 @@ private fun PhotoFullScreenViewer(
             } else {
                 Spacer(Modifier)
             }
+            IconButton(onClick = { onToggleFavorite(current.id) }) {
+                Icon(
+                    if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    contentDescription = if (isFavorite) "즐겨찾기 해제" else "즐겨찾기",
+                    tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White,
+                )
+            }
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Filled.Close, contentDescription = "닫기", tint = Color.White)
             }
@@ -247,9 +272,11 @@ private fun PhotoFullScreenViewer(
 private fun PhotoSelectCell(
     photo: Photo,
     isBest: Boolean,
+    isFavorite: Boolean,
     isSelected: Boolean,
     onViewFull: () -> Unit,
     onToggle: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -274,8 +301,8 @@ private fun PhotoSelectCell(
             )
         }
 
-        // 체크박스만 선택 토글 (BEST는 체크박스 없음)
-        if (!isBest) {
+        // 체크박스 (BEST·즐겨찾기는 비활성화)
+        if (!isBest && !isFavorite) {
             Checkbox(
                 checked = isSelected,
                 onCheckedChange = { onToggle() },
@@ -301,6 +328,18 @@ private fun PhotoSelectCell(
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                 )
             }
+        }
+
+        // 즐겨찾기 별 아이콘 (좌하단)
+        IconButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier.align(Alignment.BottomStart).padding(2.dp),
+        ) {
+            Icon(
+                if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                contentDescription = null,
+                tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White.copy(alpha = 0.8f),
+            )
         }
 
         Text(

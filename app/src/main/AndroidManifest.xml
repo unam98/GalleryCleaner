@@ -8,6 +8,7 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".PhotoCleanerApp"
@@ -27,6 +28,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 스크린샷 감지 Job (JobScheduler ContentUri 트리거 — 포그라운드 서비스 불필요) -->
+        <service
+            android:name=".work.ScreenshotDetectorJob"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- 스크린샷 알림 "중요로 설정" 액션 수신 -->
+        <receiver
+            android:name=".notification.FavoriteActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.unam.photocleaner.ACTION_MARK_FAVORITE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

@@ -3,6 +3,7 @@ package com.unam.photocleaner.di
 import android.content.Context
 import androidx.room.Room
 import com.unam.photocleaner.data.local.db.AppDatabase
+import com.unam.photocleaner.data.local.db.FavoritePhotoDao
 import com.unam.photocleaner.data.local.db.PhotoHashDao
 import dagger.Module
 import dagger.Provides
@@ -25,4 +26,8 @@ object AppModule {
     @Provides
     @Singleton
     fun providePhotoHashDao(db: AppDatabase): PhotoHashDao = db.photoHashDao()
+
+    @Provides
+    @Singleton
+    fun provideFavoritePhotoDao(db: AppDatabase): FavoritePhotoDao = db.favoritePhotoDao()
 }
