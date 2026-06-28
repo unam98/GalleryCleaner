@@ -1,6 +1,7 @@
 package com.unam.photocleaner.presentation.screen
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +33,11 @@ import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
 
 @Composable
-fun GroupListScreen(groups: List<PhotoGroup>, totalSaving: Long) {
+fun GroupListScreen(
+    groups: List<PhotoGroup>,
+    totalSaving: Long,
+    onGroupClick: (PhotoGroup) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         SavingSummaryCard(totalSaving, groups.size)
         if (groups.isEmpty()) {
@@ -42,7 +47,7 @@ fun GroupListScreen(groups: List<PhotoGroup>, totalSaving: Long) {
         } else {
             LazyColumn {
                 items(groups, key = { it.id }) { group ->
-                    PhotoGroupRow(group)
+                    PhotoGroupRow(group, onClick = { onGroupClick(group) })
                     HorizontalDivider()
                 }
             }
@@ -81,10 +86,11 @@ private fun SavingSummaryCard(bytes: Long, groupCount: Int) {
 }
 
 @Composable
-private fun PhotoGroupRow(group: PhotoGroup) {
+private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,

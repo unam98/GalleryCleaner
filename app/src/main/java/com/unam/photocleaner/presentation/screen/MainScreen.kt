@@ -1,7 +1,11 @@
 package com.unam.photocleaner.presentation.screen
 
 import android.Manifest
+import android.app.Activity
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import com.unam.photocleaner.presentation.MainEvent
 import com.unam.photocleaner.presentation.MainViewModel
 import com.unam.photocleaner.presentation.UiState
 
@@ -31,6 +37,7 @@ import com.unam.photocleaner.presentation.UiState
 @Composable
 fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val selectedGroup by viewModel.selectedGroup.collectAsStateWithLifecycle()
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -38,6 +45,38 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
     val permission = rememberPermissionState(permissionName)
+
+    // Android 10+ 시스템 삭제 다이얼로그 런처
+    val deleteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewModel.onSystemDeleteConfirmed()
+        }
+    }
+
+    // 시스템 삭제 다이얼로그 이벤트 수신
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is MainEvent.RequestSystemDelete -> {
+                    deleteLauncher.launch(
+                        IntentSenderRequest.Builder(event.intentSender).build()
+                    )
+                }
+            }
+        }
+    }
+
+    // 그룹 상세 화면
+    if (selectedGroup != null) {
+        GroupDetailScreen(
+            group = selectedGroup!!,
+            onBack = { viewModel.clearGroupSelection() },
+            onDelete = { ids -> viewModel.requestDelete(ids) },
+        )
+        return
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("PhotoCleaner") }) },
@@ -66,7 +105,11 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     }
                 }
 
-                is UiState.Done -> GroupListScreen(groups = s.groups, totalSaving = s.totalSavingBytes)
+                is UiState.Done -> GroupListScreen(
+                    groups = s.groups,
+                    totalSaving = s.totalSavingBytes,
+                    onGroupClick = { group -> viewModel.selectGroup(group) },
+                )
 
                 is UiState.Error -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {

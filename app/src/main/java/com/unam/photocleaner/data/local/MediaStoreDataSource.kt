@@ -2,8 +2,10 @@ package com.unam.photocleaner.data.local
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.IntentSender
 import android.os.Build
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import com.unam.photocleaner.domain.model.Photo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -61,8 +63,18 @@ class MediaStoreDataSource @Inject constructor(
         photos
     }
 
-    suspend fun deletePhoto(id: Long): Boolean = withContext(Dispatchers.IO) {
-        val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-        context.contentResolver.delete(uri, null, null) > 0
+    // Android 10+: 시스템 삭제 다이얼로그용 IntentSender 반환
+    @RequiresApi(Build.VERSION_CODES.Q)
+    suspend fun createDeleteRequest(ids: List<Long>): IntentSender = withContext(Dispatchers.IO) {
+        val uris = ids.map { ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, it) }
+        MediaStore.createDeleteRequest(context.contentResolver, uris).intentSender
+    }
+
+    // Android 8-9: 직접 삭제 (WRITE_EXTERNAL_STORAGE 권한 필요)
+    suspend fun deletePhotos(ids: List<Long>): Int = withContext(Dispatchers.IO) {
+        ids.count { id ->
+            val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            context.contentResolver.delete(uri, null, null) > 0
+        }
     }
 }
