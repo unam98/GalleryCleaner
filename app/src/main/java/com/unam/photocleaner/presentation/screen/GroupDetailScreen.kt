@@ -95,9 +95,13 @@ fun GroupDetailScreen(
     BackHandler(enabled = fullScreenIndex == null, onBack = onBack)
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(if (isVideo) R.string.group_title_video else R.string.group_title_photo, group.photos.size)) },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
@@ -347,8 +351,8 @@ private fun PhotoSelectCell(
     Box(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onViewFull() },   // 사진 탭 → 풀스크린
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onViewFull() },
     ) {
         AsyncImage(
             model = photo.uri,
@@ -356,18 +360,37 @@ private fun PhotoSelectCell(
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (isSelected) Modifier.alpha(0.55f) else Modifier),
+                .then(if (isSelected) Modifier.alpha(0.5f) else Modifier),
         )
 
+        // 선택 오버레이
         if (isSelected) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.18f)),
+                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.22f)),
             )
         }
 
-        // 체크박스 (즐겨찾기만 비활성화, BEST는 허용)
+        // 동영상 재생 아이콘 (중앙)
+        if (photo.isVideo) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(50)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+
+        // 체크박스 (우상단, 즐겨찾기는 비활성)
         if (!isFavorite) {
             Checkbox(
                 checked = isSelected,
@@ -376,39 +399,31 @@ private fun PhotoSelectCell(
                 colors = CheckboxDefaults.colors(
                     checkmarkColor = Color.White,
                     checkedColor = MaterialTheme.colorScheme.error,
-                    uncheckedColor = Color.White,
+                    uncheckedColor = Color.White.copy(alpha = 0.85f),
                 ),
             )
         }
 
+        // BEST 뱃지 (좌상단)
         if (isBest) {
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 8.dp),
-                modifier = Modifier.align(Alignment.TopStart),
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .background(
+                        MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(topStart = 12.dp, bottomEnd = 8.dp),
+                    )
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {
                 Text(
                     "BEST",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                 )
             }
         }
 
-        // 동영상 재생 아이콘 (중앙)
-        if (photo.isVideo) {
-            Icon(
-                Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier
-                    .size(36.dp)
-                    .align(Alignment.Center),
-            )
-        }
-
-        // 즐겨찾기 별 아이콘 (좌하단)
+        // 즐겨찾기 별 (좌하단)
         IconButton(
             onClick = onToggleFavorite,
             modifier = Modifier.align(Alignment.BottomStart).padding(2.dp),
@@ -416,18 +431,19 @@ private fun PhotoSelectCell(
             Icon(
                 if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 contentDescription = null,
-                tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White.copy(alpha = 0.8f),
+                tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White.copy(alpha = 0.85f),
             )
         }
 
+        // 파일 크기 (우하단)
         Text(
             formatBytes(photo.size),
             style = MaterialTheme.typography.labelSmall,
             color = Color.White,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(topStart = 6.dp))
-                .padding(horizontal = 5.dp, vertical = 2.dp),
+                .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(topStart = 7.dp))
+                .padding(horizontal = 6.dp, vertical = 3.dp),
         )
     }
 }
