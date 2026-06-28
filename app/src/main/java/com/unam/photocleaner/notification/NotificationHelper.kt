@@ -79,9 +79,18 @@ class NotificationHelper @Inject constructor(
     fun showScreenshotFavoritePrompt(photoId: Long, displayName: String) {
         if (!hasNotifyPermission()) return
 
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val openAppPi = PendingIntent.getActivity(
+            context, NOTIF_SCREENSHOT, openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val favoriteIntent = Intent(context, FavoriteActionReceiver::class.java).apply {
             action = FavoriteActionReceiver.ACTION_MARK_FAVORITE
             putExtra(FavoriteActionReceiver.EXTRA_PHOTO_ID, photoId)
+            putExtra(FavoriteActionReceiver.EXTRA_DISPLAY_NAME, displayName)
         }
         val favoritePi = PendingIntent.getBroadcast(
             context, photoId.toInt(), favoriteIntent,
@@ -95,7 +104,22 @@ class NotificationHelper @Inject constructor(
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setContentTitle(context.getString(R.string.notif_screenshot_title))
                 .setContentText(context.getString(R.string.notif_screenshot_body, name))
+                .setContentIntent(openAppPi)
                 .addAction(0, context.getString(R.string.notif_screenshot_action), favoritePi)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    fun showScreenshotMarkedConfirm(displayName: String) {
+        if (!hasNotifyPermission()) return
+        val name = displayName.ifEmpty { context.getString(R.string.screenshot_default_name) }
+        NotificationManagerCompat.from(context).notify(
+            NOTIF_SCREENSHOT,
+            NotificationCompat.Builder(context, CHANNEL_SCREENSHOT)
+                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentTitle(context.getString(R.string.notif_screenshot_marked))
+                .setContentText(name)
                 .setAutoCancel(true)
                 .build(),
         )
