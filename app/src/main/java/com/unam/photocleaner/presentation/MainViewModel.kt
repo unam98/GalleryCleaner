@@ -23,6 +23,7 @@ import com.unam.photocleaner.work.WorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -116,8 +117,19 @@ class MainViewModel @Inject constructor(
     private var pendingDeleteIds: List<Long> = emptyList()
 
     init {
-        // 복원된 Done 상태에서 레이블링 재시작 (ML 레이블은 메모리에만 존재)
-        (_state.value as? UiState.Done)?.let { startLabeling(it.groups) }
+        // 복원된 Done 상태에서 백그라운드 라벨링 재시작 (ML 레이블은 메모리에만 존재)
+        (_state.value as? UiState.Done)?.let { done ->
+            _isLabeling.value = true
+            viewModelScope.launch(Dispatchers.IO) {
+                val allPhotos = done.groups.flatMap { it.photos }.distinctBy { it.id }
+                val labels = mutableMapOf<Long, List<String>>()
+                allPhotos.forEach { photo ->
+                    labels[photo.id] = labelExtractor.getLabels(photo.uri)
+                    _photoLabels.value = labels.toMap()
+                }
+                _isLabeling.value = false
+            }
+        }
 
         // Scanning 제외하고 상태 변화마다 저장 (Scanning은 복원 불가 → Idle로)
         viewModelScope.launch {
@@ -175,30 +187,29 @@ class MainViewModel @Inject constructor(
                     _state.value = UiState.Scanning(current = current, total = total, label = label)
                 }
                 val videoGroups = groupVideos.execute(videos)
-                (photoGroups + videoGroups).sortedByDescending { it.potentialSavingBytes }
+                val groups = (photoGroups + videoGroups).sortedByDescending { it.potentialSavingBytes }
+
+                // 라벨링을 Scanning 페이즈 안에서 처리 (Done은 마지막에만)
+                if (groups.isNotEmpty()) {
+                    _state.value = UiState.Scanning(isLabelingPhase = true)
+                    val allPhotos = groups.flatMap { it.photos }.distinctBy { it.id }
+                    val labels = mutableMapOf<Long, List<String>>()
+                    withContext(Dispatchers.IO) {
+                        allPhotos.forEach { photo ->
+                            labels[photo.id] = labelExtractor.getLabels(photo.uri)
+                        }
+                    }
+                    _photoLabels.value = labels.toMap()
+                }
+                groups
             }.onSuccess { groups ->
                 _state.value = UiState.Done(
                     groups = groups,
                     totalSavingBytes = groups.sumOf { it.potentialSavingBytes },
                 )
-                startLabeling(groups)
             }.onFailure { e ->
                 _state.value = UiState.Error(e.message ?: "Unknown error")
             }
-        }
-    }
-
-    private fun startLabeling(groups: List<PhotoGroup>) {
-        if (groups.isEmpty()) return
-        _isLabeling.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val allPhotos = groups.flatMap { it.photos }.distinctBy { it.id }
-            val labels = mutableMapOf<Long, List<String>>()
-            allPhotos.forEach { photo ->
-                labels[photo.id] = labelExtractor.getLabels(photo.uri)
-                _photoLabels.value = labels.toMap()
-            }
-            _isLabeling.value = false
         }
     }
 
@@ -324,7 +335,12 @@ sealed class UiState : Parcelable {
     data object Idle : UiState()
 
     @Parcelize
-    data class Scanning(val current: Int = 0, val total: Int = 0, val label: String = "") : UiState()
+    data class Scanning(
+        val current: Int = 0,
+        val total: Int = 0,
+        val label: String = "",
+        val isLabelingPhase: Boolean = false,
+    ) : UiState()
 
     @Parcelize
     data class Done(val groups: List<PhotoGroup>, val totalSavingBytes: Long) : UiState()

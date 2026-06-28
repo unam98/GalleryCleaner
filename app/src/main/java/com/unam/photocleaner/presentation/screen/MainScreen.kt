@@ -189,7 +189,6 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                 AppTab.SCAN -> ScanTabContent(
                     state = state,
                     filteredGroups = filteredGroups,
-                    isLabeling = isLabeling,
                     selectedCategory = selectedCategory,
                     keyword = keyword,
                     favoriteIds = favoriteIds,
@@ -277,7 +276,6 @@ private fun AppNavigationBar(selectedTab: AppTab, onTabSelect: (AppTab) -> Unit)
 private fun ScanTabContent(
     state: UiState,
     filteredGroups: List<com.unam.photocleaner.domain.model.PhotoGroup>,
-    isLabeling: Boolean,
     selectedCategory: String?,
     keyword: String,
     favoriteIds: Set<Long>,
@@ -296,7 +294,6 @@ private fun ScanTabContent(
             groups = filteredGroups,
             totalSaving = s.totalSavingBytes,
             totalGroupCount = s.groups.size,
-            isLabeling = isLabeling,
             selectedCategory = selectedCategory,
             keyword = keyword,
             onCategorySelect = onCategorySelect,
@@ -453,13 +450,32 @@ private fun ScanningIndicator(s: UiState.Scanning) {
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    if (s.total == 0) stringResource(R.string.loading_photos)
-                    else if (s.label.isNotEmpty()) s.label else stringResource(R.string.analyzing),
+                    when {
+                        s.isLabelingPhase -> stringResource(R.string.labeling_phase)
+                        s.total == 0 -> stringResource(R.string.loading_photos)
+                        s.label.isNotEmpty() -> s.label
+                        else -> stringResource(R.string.analyzing)
+                    },
                     style = MaterialTheme.typography.titleMedium,
                 )
-                if (s.total > 0) {
+                Spacer(Modifier.height(14.dp))
+                if (s.isLabelingPhase) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.labeling_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (s.total > 0) {
                     val progress = s.current.toFloat() / s.total
-                    Spacer(Modifier.height(14.dp))
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier

@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -61,7 +60,6 @@ fun GroupListScreen(
     groups: List<PhotoGroup>,
     totalSaving: Long,
     totalGroupCount: Int,
-    isLabeling: Boolean,
     selectedCategory: String?,
     keyword: String,
     onCategorySelect: (String?) -> Unit,
@@ -79,7 +77,6 @@ fun GroupListScreen(
         item { Spacer(Modifier.height(8.dp)) }
         item {
             CategoryFilterRow(
-                isLabeling = isLabeling,
                 selectedCategory = selectedCategory,
                 onCategorySelect = onCategorySelect,
             )
@@ -195,31 +192,16 @@ private fun SavingHeaderCard(totalSaving: Long, totalGroupCount: Int, filteredCo
 
 @Composable
 private fun CategoryFilterRow(
-    isLabeling: Boolean,
     selectedCategory: String?,
     onCategorySelect: (String?) -> Unit,
 ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Text(
+            stringResource(R.string.category_label),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 6.dp),
-        ) {
-            Text(
-                stringResource(R.string.category_label),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (isLabeling) {
-                Spacer(Modifier.width(6.dp))
-                CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp)
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    stringResource(R.string.analyzing),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        )
     }
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -230,7 +212,6 @@ private fun CategoryFilterRow(
             FilterChip(
                 selected = selectedCategory == null,
                 onClick = { onCategorySelect(null) },
-                enabled = !isLabeling,
                 label = { Text(stringResource(R.string.filter_all), style = MaterialTheme.typography.labelLarge) },
                 shape = RoundedCornerShape(8.dp),
                 colors = FilterChipDefaults.filterChipColors(
@@ -243,7 +224,6 @@ private fun CategoryFilterRow(
             FilterChip(
                 selected = selectedCategory == category,
                 onClick = { onCategorySelect(if (selectedCategory == category) null else category) },
-                enabled = !isLabeling,
                 label = { Text(category, style = MaterialTheme.typography.labelLarge) },
                 shape = RoundedCornerShape(8.dp),
                 colors = FilterChipDefaults.filterChipColors(

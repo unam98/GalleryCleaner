@@ -17,6 +17,8 @@
     <string name="error_message">오류: %1$s</string>
     <string name="retry">다시 시도</string>
     <string name="loading_photos">사진 목록 불러오는 중…</string>
+    <string name="labeling_phase">AI 분석 중…</string>
+    <string name="labeling_desc">카테고리·키워드 검색을 위한 사진 분류 중</string>
     <string name="scanning_progress">%1$,d / %2$,d장</string>
 
     <!-- GroupListScreen -->
