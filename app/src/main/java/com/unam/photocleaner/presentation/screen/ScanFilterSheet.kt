@@ -18,8 +18,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.unam.photocleaner.R
 import com.unam.photocleaner.domain.model.MaxPhotoCount
 import com.unam.photocleaner.domain.model.MediaType
 import com.unam.photocleaner.domain.model.MinSize
@@ -46,11 +48,11 @@ fun ScanFilterSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            Text("스캔 범위 설정", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.scan_filter_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
             Spacer(Modifier.height(20.dp))
 
-            Text("미디어 유형", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.media_type_section), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MediaType.entries.forEach { type ->
@@ -64,7 +66,7 @@ fun ScanFilterSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            Text("기간", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.period_section), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ScanPeriod.entries.forEach { period ->
@@ -78,7 +80,7 @@ fun ScanFilterSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            Text("사진 장수", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.photo_count_section), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MaxPhotoCount.entries.forEach { option ->
@@ -92,7 +94,7 @@ fun ScanFilterSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            Text("최소 파일 크기", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.min_size_section), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MinSize.entries.forEach { size ->
@@ -113,7 +115,7 @@ fun ScanFilterSheet(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("스캔 시작")
+                Text(stringResource(R.string.start_scan))
             }
 
             Spacer(Modifier.height(8.dp))

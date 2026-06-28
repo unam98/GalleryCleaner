@@ -17,8 +17,10 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.unam.photocleaner.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,19 +41,19 @@ fun SettingsSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            Text("알림 설정", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.notification_settings_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(16.dp))
 
             SettingRow(
-                title = "주기적 중복 사진 알림",
-                subtitle = "6시간마다 자동 스캔 후 중복 발견 시 알림",
+                title = stringResource(R.string.periodic_notif_title),
+                subtitle = stringResource(R.string.periodic_notif_desc),
                 checked = periodicNotification,
                 onCheckedChange = onPeriodicNotificationChange,
             )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SettingRow(
-                title = "스크린샷 중요 표시 알림",
-                subtitle = "스크린샷 저장 시 중요 여부를 묻는 알림 (배터리 영향 없음)",
+                title = stringResource(R.string.screenshot_notif_title),
+                subtitle = stringResource(R.string.screenshot_notif_desc),
                 checked = screenshotNotification,
                 onCheckedChange = onScreenshotNotificationChange,
             )

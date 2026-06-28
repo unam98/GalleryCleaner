@@ -11,6 +11,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.unam.photocleaner.MainActivity
+import com.unam.photocleaner.R
 import com.unam.photocleaner.presentation.screen.formatBytes
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -24,12 +25,18 @@ class NotificationHelper @Inject constructor(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_SCAN, "사진 정리 알림", NotificationManager.IMPORTANCE_DEFAULT)
-                    .apply { description = "유사·중복 사진 발견 시 알림" }
+                NotificationChannel(
+                    CHANNEL_SCAN,
+                    context.getString(R.string.notif_channel_scan_name),
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply { description = context.getString(R.string.notif_channel_scan_desc) }
             )
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_SCREENSHOT, "스크린샷 중요 표시", NotificationManager.IMPORTANCE_HIGH)
-                    .apply { description = "스크린샷 저장 시 중요 여부 묻는 알림" }
+                NotificationChannel(
+                    CHANNEL_SCREENSHOT,
+                    context.getString(R.string.notif_channel_screenshot_name),
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply { description = context.getString(R.string.notif_channel_screenshot_desc) }
             )
         }
     }
@@ -53,14 +60,14 @@ class NotificationHelper @Inject constructor(
         val pi = PendingIntent.getActivity(context, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        val body = if (savingBytes > 0) "${groupCount}그룹 발견 · ${formatBytes(savingBytes)} 정리 가능해요"
-                   else "${groupCount}그룹의 유사 사진이 발견됐어요"
+        val body = if (savingBytes > 0) context.getString(R.string.notif_scan_body_saving, groupCount, formatBytes(savingBytes))
+                   else context.getString(R.string.notif_scan_body_no_saving, groupCount)
 
         NotificationManagerCompat.from(context).notify(
             NOTIF_SCAN,
             NotificationCompat.Builder(context, CHANNEL_SCAN)
                 .setSmallIcon(android.R.drawable.ic_menu_gallery)
-                .setContentTitle("유사 사진 발견")
+                .setContentTitle(context.getString(R.string.notif_scan_title))
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setContentIntent(pi)
@@ -81,14 +88,14 @@ class NotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val name = displayName.ifEmpty { "스크린샷" }
+        val name = displayName.ifEmpty { context.getString(R.string.screenshot_default_name) }
         NotificationManagerCompat.from(context).notify(
             NOTIF_SCREENSHOT,
             NotificationCompat.Builder(context, CHANNEL_SCREENSHOT)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
-                .setContentTitle("스크린샷 저장됨")
-                .setContentText("\"$name\" — 중요 사진으로 설정할까요?")
-                .addAction(0, "⭐ 중요로 설정", favoritePi)
+                .setContentTitle(context.getString(R.string.notif_screenshot_title))
+                .setContentText(context.getString(R.string.notif_screenshot_body, name))
+                .addAction(0, context.getString(R.string.notif_screenshot_action), favoritePi)
                 .setAutoCancel(true)
                 .build(),
         )

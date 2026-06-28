@@ -58,8 +58,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.unam.photocleaner.R
 import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
 
@@ -87,7 +89,6 @@ fun GroupDetailScreen(
     val selectedPhotos = group.photos.filter { selected[it.id] == true && it.id !in favoriteIds }
     val savingBytes = selectedPhotos.sumOf { it.size }
     val isVideo = group.photos.firstOrNull()?.isVideo == true
-    val unit = if (isVideo) "개" else "장"
 
     // 풀스크린 뷰어가 열려 있으면 뒤로가기로 먼저 닫기
     BackHandler(enabled = fullScreenIndex != null) { fullScreenIndex = null }
@@ -96,10 +97,10 @@ fun GroupDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("${group.photos.size}$unit 그룹") },
+                title = { Text(stringResource(if (isVideo) R.string.group_title_video else R.string.group_title_photo, group.photos.size)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "뒤로")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
             )
@@ -116,7 +117,7 @@ fun GroupDetailScreen(
                             containerColor = MaterialTheme.colorScheme.error,
                         ),
                     ) {
-                        Text("${selectedPhotos.size}$unit 삭제  •  ${formatBytes(savingBytes)} 절약")
+                        Text(stringResource(if (isVideo) R.string.delete_btn_video else R.string.delete_btn_photo, selectedPhotos.size, formatBytes(savingBytes)))
                     }
                 }
             }
@@ -278,12 +279,12 @@ private fun PhotoFullScreenViewer(
             IconButton(onClick = { onToggleFavorite(current.id) }) {
                 Icon(
                     if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                    contentDescription = if (isFavorite) "즐겨찾기 해제" else "즐겨찾기",
+                    contentDescription = if (isFavorite) stringResource(R.string.favorite_remove) else stringResource(R.string.favorite_add),
                     tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White,
                 )
             }
             IconButton(onClick = onDismiss) {
-                Icon(Icons.Filled.Close, contentDescription = "닫기", tint = Color.White)
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
             }
         }
 
@@ -313,12 +314,14 @@ private fun PhotoFullScreenViewer(
                     ),
                 ) {
                     Text(
-                        if (selected) "삭제 선택됨 ✓" else if (isBest) "BEST — 삭제 선택 안됨" else "삭제 선택 안됨",
+                        if (selected) stringResource(R.string.delete_selected)
+                        else if (isBest) stringResource(R.string.best_not_selected)
+                        else stringResource(R.string.delete_not_selected),
                         color = Color.White,
                     )
                 }
             } else {
-                Text("즐겨찾기 설정 — 삭제 불가", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.favorite_protected), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

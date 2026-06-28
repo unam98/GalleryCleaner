@@ -39,9 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.unam.photocleaner.R
 import com.unam.photocleaner.domain.model.GroupType
 import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
@@ -78,8 +80,8 @@ fun GroupListScreen(
         if (groups.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (selectedCategory != null || keyword.isNotBlank()) "조건에 맞는 그룹이 없습니다"
-                    else "중복 사진이 없습니다",
+                    if (selectedCategory != null || keyword.isNotBlank()) stringResource(R.string.no_matching_groups)
+                    else stringResource(R.string.no_duplicates),
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
@@ -109,7 +111,7 @@ private fun SavingSummaryCard(totalSaving: Long, totalGroupCount: Int, filteredC
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "절약 가능 용량",
+                stringResource(R.string.potential_saving_label),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -121,8 +123,8 @@ private fun SavingSummaryCard(totalSaving: Long, totalGroupCount: Int, filteredC
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (isFiltered) "전체 ${totalGroupCount}그룹 중 ${filteredCount}개 표시"
-                else "그룹 ${totalGroupCount}개 발견",
+                if (isFiltered) stringResource(R.string.groups_filtered, totalGroupCount, filteredCount)
+                else stringResource(R.string.groups_found, totalGroupCount),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -141,7 +143,7 @@ private fun CategoryFilterRow(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
     ) {
         Text(
-            "카테고리",
+            stringResource(R.string.category_label),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -150,7 +152,7 @@ private fun CategoryFilterRow(
             CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
             Spacer(Modifier.width(4.dp))
             Text(
-                "분석 중...",
+                stringResource(R.string.analyzing),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -166,7 +168,7 @@ private fun CategoryFilterRow(
                 selected = selectedCategory == null,
                 onClick = { onCategorySelect(null) },
                 enabled = !isLabeling,
-                label = { Text("전체") },
+                label = { Text(stringResource(R.string.filter_all)) },
             )
         }
         items(MainViewModel.CATEGORY_LABELS.keys.toList()) { category ->
@@ -185,12 +187,12 @@ private fun KeywordSearchField(keyword: String, onKeywordChange: (String) -> Uni
     OutlinedTextField(
         value = keyword,
         onValueChange = onKeywordChange,
-        placeholder = { Text("키워드 검색 (예: 강아지, sky)") },
+        placeholder = { Text(stringResource(R.string.keyword_hint)) },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         trailingIcon = {
             if (keyword.isNotEmpty()) {
                 IconButton(onClick = { onKeywordChange("") }) {
-                    Icon(Icons.Default.Clear, contentDescription = "지우기")
+                    Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.clear))
                 }
             }
         },
@@ -205,7 +207,6 @@ private fun KeywordSearchField(keyword: String, onKeywordChange: (String) -> Uni
 @Composable
 private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete: () -> Unit) {
     val isVideo = group.type == GroupType.VIDEO_DUPLICATE || group.type == GroupType.SHORT_VIDEO
-    val unit = if (isVideo) "개" else "장"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -227,13 +228,20 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(2.dp))
                 }
-                Text("${group.photos.size}$unit", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    stringResource(
+                        if (isVideo) R.string.group_title_video else R.string.group_title_photo,
+                        group.photos.size,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
             }
             Text(formatBytes(group.potentialSavingBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
         // BEST 제외 즉시 삭제 버튼
         IconButton(onClick = onQuickDelete) {
-            Icon(Icons.Default.Delete, contentDescription = "BEST 제외 삭제",
+            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.quick_delete_desc),
                 tint = MaterialTheme.colorScheme.error)
         }
     }

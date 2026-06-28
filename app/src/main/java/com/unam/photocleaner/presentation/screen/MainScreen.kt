@@ -35,12 +35,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import com.unam.photocleaner.R
 import com.unam.photocleaner.presentation.MainEvent
 import com.unam.photocleaner.presentation.MainViewModel
 import com.unam.photocleaner.presentation.UiState
@@ -111,15 +113,15 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("GalleryCleaner") },
+                title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     if (state is UiState.Done) {
                         TextButton(onClick = { showFilterSheet = true }) {
-                            Text("재스캔")
+                            Text(stringResource(R.string.rescan))
                         }
                     }
                     IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "설정")
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings))
                     }
                 },
             )
@@ -141,7 +143,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                             permission.launchPermissionRequest()
                         }
                     }) {
-                        Text(if (permission.status.isGranted) "스캔 시작" else "미디어 접근 허용")
+                        Text(if (permission.status.isGranted) stringResource(R.string.start_scan) else stringResource(R.string.grant_media_access))
                     }
                 }
 
@@ -165,9 +167,9 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
 
                 is UiState.Error -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("오류: ${s.message}")
+                        Text(stringResource(R.string.error_message, s.message))
                         Spacer(Modifier.height(16.dp))
-                        Button(onClick = { viewModel.reset() }) { Text("다시 시도") }
+                        Button(onClick = { viewModel.reset() }) { Text(stringResource(R.string.retry)) }
                     }
                 }
             }
@@ -203,7 +205,7 @@ private fun ScanningIndicator(s: UiState.Scanning) {
         if (s.total == 0) {
             CircularProgressIndicator()
             Spacer(Modifier.height(16.dp))
-            Text("사진 목록 불러오는 중...", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.loading_photos), style = MaterialTheme.typography.bodyMedium)
         } else {
             val progress = s.current.toFloat() / s.total
             LinearProgressIndicator(
@@ -212,7 +214,7 @@ private fun ScanningIndicator(s: UiState.Scanning) {
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "%,d / %,d장".format(s.current, s.total),
+                stringResource(R.string.scanning_progress, s.current, s.total),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(4.dp))
