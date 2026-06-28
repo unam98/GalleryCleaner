@@ -3,6 +3,9 @@ package com.unam.photocleaner
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import coil.Coil
+import coil.ImageLoader
+import coil.decode.VideoFrameDecoder
 import com.unam.photocleaner.data.local.AppPreferences
 import com.unam.photocleaner.notification.NotificationHelper
 import com.unam.photocleaner.work.ScreenshotDetectorJob
@@ -20,6 +23,12 @@ class PhotoCleanerApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // 동영상 썸네일 지원 (VideoFrameDecoder)
+        Coil.setImageLoader(
+            ImageLoader.Builder(this)
+                .components { add(VideoFrameDecoder.Factory()) }
+                .build()
+        )
         notificationHelper.createChannel()
         if (appPreferences.periodicScanNotification) {
             workScheduler.schedulePeriodicScan()

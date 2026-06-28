@@ -73,6 +73,7 @@ dependencies {
 
     // Image
     implementation(libs.coil.compose)
+    implementation(libs.coil.video)
 
     // LiteRT (구 TFLite) — 16KB page size 지원
     implementation(libs.litert)
