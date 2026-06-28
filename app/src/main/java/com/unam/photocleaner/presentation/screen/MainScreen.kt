@@ -21,6 +21,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -92,7 +93,18 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("PhotoCleaner") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("PhotoCleaner") },
+                actions = {
+                    if (state is UiState.Done) {
+                        TextButton(onClick = { showFilterSheet = true }) {
+                            Text("재스캔")
+                        }
+                    }
+                },
+            )
+        },
     ) { padding ->
         Box(
             modifier = Modifier
