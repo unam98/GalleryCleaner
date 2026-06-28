@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unam.photocleaner.data.local.MediaStoreDataSource
 import com.unam.photocleaner.domain.model.PhotoGroup
+import com.unam.photocleaner.domain.model.ScanFilter
 import com.unam.photocleaner.domain.usecase.GroupPhotosUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,6 +27,9 @@ class MainViewModel @Inject constructor(
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    private val _filter = MutableStateFlow(ScanFilter())
+    val filter: StateFlow<ScanFilter> = _filter.asStateFlow()
+
     private val _selectedGroup = MutableStateFlow<PhotoGroup?>(null)
     val selectedGroup: StateFlow<PhotoGroup?> = _selectedGroup.asStateFlow()
 
@@ -34,11 +38,17 @@ class MainViewModel @Inject constructor(
 
     private var pendingDeleteIds: List<Long> = emptyList()
 
+    fun updateFilter(filter: ScanFilter) { _filter.value = filter }
+
     fun scan() {
+        val f = _filter.value
         viewModelScope.launch {
             _state.value = UiState.Scanning()
             runCatching {
-                val photos = mediaStore.getAllPhotos()
+                val photos = mediaStore.getAllPhotos(
+                    sinceMs = f.sinceTimestampMs(),
+                    minSizeBytes = f.minSizeBytes,
+                )
                 _state.value = UiState.Scanning(current = 0, total = photos.size)
                 groupPhotos.execute(photos) { current, total, label ->
                     _state.value = UiState.Scanning(current = current, total = total, label = label)

@@ -25,6 +25,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -42,6 +45,8 @@ import com.unam.photocleaner.presentation.UiState
 fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedGroup by viewModel.selectedGroup.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
+    var showFilterSheet by remember { mutableStateOf(false) }
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -94,7 +99,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             when (val s = state) {
                 is UiState.Idle -> {
                     Button(onClick = {
-                        if (permission.status.isGranted) viewModel.scan()
+                        if (permission.status.isGranted) showFilterSheet = true
                         else permission.launchPermissionRequest()
                     }) {
                         Text(if (permission.status.isGranted) "스캔 시작" else "사진 접근 허용")
@@ -118,6 +123,15 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                 }
             }
         }
+    }
+
+    if (showFilterSheet) {
+        ScanFilterSheet(
+            filter = filter,
+            onFilterChange = { viewModel.updateFilter(it) },
+            onScan = { viewModel.scan() },
+            onDismiss = { showFilterSheet = false },
+        )
     }
 }
 
