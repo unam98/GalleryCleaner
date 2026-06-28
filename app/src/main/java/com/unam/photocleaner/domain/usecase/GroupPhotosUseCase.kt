@@ -13,6 +13,8 @@ import com.unam.photocleaner.util.ImageQualityUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -121,7 +123,17 @@ class GroupPhotosUseCase @Inject constructor(
 
         sorted.forEachIndexed { index, photo ->
             onProgress(index + 1, sorted.size)
-            embeddings[photo.id] = computeEmbedding(photo) ?: return@forEachIndexed
+            val entity = hashes[photo.id]
+            val cached = entity?.embedding
+            if (cached != null) {
+                embeddings[photo.id] = cached.toFloatArray()
+                return@forEachIndexed
+            }
+            val emb = computeEmbedding(photo) ?: return@forEachIndexed
+            embeddings[photo.id] = emb
+            if (entity != null) {
+                photoHashDao.insert(entity.copy(embedding = emb.toByteArray()))
+            }
         }
 
         val visited = BooleanArray(sorted.size)
@@ -158,6 +170,19 @@ class GroupPhotosUseCase @Inject constructor(
         bitmap.recycle()
         emb
     } catch (e: Exception) { null }
+
+    // ── 직렬화 헬퍼 ──────────────────────────────────────────────────────────
+
+    private fun FloatArray.toByteArray(): ByteArray {
+        val buf = ByteBuffer.allocate(size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        buf.asFloatBuffer().put(this)
+        return buf.array()
+    }
+
+    private fun ByteArray.toFloatArray(): FloatArray {
+        val buf = ByteBuffer.wrap(this).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+        return FloatArray(buf.limit()).also { buf.get(it) }
+    }
 
     // ── 공통 ─────────────────────────────────────────────────────────────────
 
