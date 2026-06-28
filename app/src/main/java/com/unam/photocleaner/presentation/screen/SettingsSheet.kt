@@ -22,6 +22,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.unam.photocleaner.R
 
+@Composable
+fun SettingsContent(
+    periodicNotification: Boolean,
+    screenshotNotification: Boolean,
+    onPeriodicNotificationChange: (Boolean) -> Unit,
+    onScreenshotNotificationChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+    ) {
+        Text(stringResource(R.string.notification_settings_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+
+        SettingRow(
+            title = stringResource(R.string.periodic_notif_title),
+            subtitle = stringResource(R.string.periodic_notif_desc),
+            checked = periodicNotification,
+            onCheckedChange = onPeriodicNotificationChange,
+        )
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        SettingRow(
+            title = stringResource(R.string.screenshot_notif_title),
+            subtitle = stringResource(R.string.screenshot_notif_desc),
+            checked = screenshotNotification,
+            onCheckedChange = onScreenshotNotificationChange,
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsSheet(
@@ -35,31 +67,13 @@ fun SettingsSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .navigationBarsPadding(),
-        ) {
-            Text(stringResource(R.string.notification_settings_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(16.dp))
-
-            SettingRow(
-                title = stringResource(R.string.periodic_notif_title),
-                subtitle = stringResource(R.string.periodic_notif_desc),
-                checked = periodicNotification,
-                onCheckedChange = onPeriodicNotificationChange,
-            )
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            SettingRow(
-                title = stringResource(R.string.screenshot_notif_title),
-                subtitle = stringResource(R.string.screenshot_notif_desc),
-                checked = screenshotNotification,
-                onCheckedChange = onScreenshotNotificationChange,
-            )
-
-            Spacer(Modifier.height(24.dp))
-        }
+        SettingsContent(
+            periodicNotification = periodicNotification,
+            screenshotNotification = screenshotNotification,
+            onPeriodicNotificationChange = onPeriodicNotificationChange,
+            onScreenshotNotificationChange = onScreenshotNotificationChange,
+            modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp),
+        )
     }
 }
 

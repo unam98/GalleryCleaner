@@ -1,7 +1,15 @@
 <resources>
     <string name="app_name">GalleryCleaner</string>
 
+    <!-- 바텀 네비 탭 -->
+    <string name="tab_scan">스캔</string>
+    <string name="tab_favorites">즐겨찾기</string>
+
     <!-- MainScreen -->
+    <string name="idle_subtitle">중복·유사 사진과 영상을 찾아\n소중한 저장 공간을 확보하세요</string>
+    <string name="feature_auto_detect">중복·유사 사진 자동 탐지</string>
+    <string name="feature_video_clean">중복 영상·짧은 클립 정리</string>
+    <string name="feature_favorite_protect">즐겨찾기로 실수 삭제 방지</string>
     <string name="rescan">재스캔</string>
     <string name="settings">설정</string>
     <string name="grant_media_access">미디어 접근 허용</string>
@@ -65,4 +73,8 @@
     <string name="notif_screenshot_action">⭐ 중요로 설정</string>
     <string name="screenshot_default_name">스크린샷</string>
     <string name="notif_screenshot_marked">⭐ 중요 사진으로 설정됐어요</string>
+
+    <!-- FavoritesScreen -->
+    <string name="favorites_empty">즐겨찾기한 사진이 없어요</string>
+    <string name="favorites_no_scan">스캔 후 즐겨찾기한 사진이\n여기에 표시됩니다</string>
 </resources>

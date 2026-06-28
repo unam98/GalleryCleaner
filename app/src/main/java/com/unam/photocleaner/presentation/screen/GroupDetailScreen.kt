@@ -1,5 +1,6 @@
 package com.unam.photocleaner.presentation.screen
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -58,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -172,7 +174,7 @@ fun GroupDetailScreen(
 }
 
 @Composable
-private fun PhotoFullScreenViewer(
+internal fun PhotoFullScreenViewer(
     photos: List<Photo>,
     initialIndex: Int,
     bestPhotoId: Long,
@@ -182,6 +184,7 @@ private fun PhotoFullScreenViewer(
     onToggleFavorite: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     val pagerState = rememberPagerState(initialPage = initialIndex) { photos.size }
     val current = photos[pagerState.currentPage]
     val isBest = current.id == bestPhotoId
@@ -235,16 +238,29 @@ private fun PhotoFullScreenViewer(
                             })
                         },
                 )
-                // 동영상 표시
+                // 동영상 재생 버튼 — 탭 시 시스템 플레이어 실행
                 if (photos[page].isVideo) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.85f),
+                    Box(
                         modifier = Modifier
-                            .size(64.dp)
-                            .align(Alignment.Center),
-                    )
+                            .size(72.dp)
+                            .align(Alignment.Center)
+                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                            .clickable {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(photos[page].uri, "video/*")
+                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                }
+                                context.startActivity(intent)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(40.dp),
+                        )
+                    }
                 }
             }
         }

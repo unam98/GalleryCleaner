@@ -15,15 +15,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AutoDelete
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,9 +35,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,9 +68,11 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.unam.photocleaner.R
 import com.unam.photocleaner.presentation.MainEvent
-import com.unam.photocleaner.presentation.ui.theme.iOSGreen
 import com.unam.photocleaner.presentation.MainViewModel
 import com.unam.photocleaner.presentation.UiState
+import com.unam.photocleaner.presentation.ui.theme.iOSGreen
+
+private enum class AppTab { SCAN, FAVORITES, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -79,8 +87,9 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val periodicNotification by viewModel.periodicNotification.collectAsStateWithLifecycle()
     val screenshotNotification by viewModel.screenshotNotification.collectAsStateWithLifecycle()
+
+    var selectedTab by rememberSaveable { mutableStateOf(AppTab.SCAN) }
     var showFilterSheet by remember { mutableStateOf(false) }
-    var showSettingsSheet by remember { mutableStateOf(false) }
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -123,6 +132,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
         }
     }
 
+    // 그룹 상세 화면은 탭 위에 오버레이
     if (selectedGroup != null) {
         GroupDetailScreen(
             group = selectedGroup!!,
@@ -139,15 +149,18 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
         topBar = {
             TopAppBar(
                 title = {
-                    if (state is UiState.Done || state is UiState.Scanning) {
-                        Text(
-                            stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
+                    val title = when (selectedTab) {
+                        AppTab.SCAN -> if (state is UiState.Done || state is UiState.Scanning)
+                            stringResource(R.string.app_name) else null
+                        AppTab.FAVORITES -> stringResource(R.string.tab_favorites)
+                        AppTab.SETTINGS -> stringResource(R.string.settings)
+                    }
+                    if (title != null) {
+                        Text(title, style = MaterialTheme.typography.titleLarge)
                     }
                 },
                 actions = {
-                    if (state is UiState.Done) {
+                    if (selectedTab == AppTab.SCAN && state is UiState.Done) {
                         TextButton(onClick = { showFilterSheet = true }) {
                             Text(
                                 stringResource(R.string.rescan),
@@ -157,18 +170,14 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                             )
                         }
                     }
-                    IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(
-                            Icons.Outlined.Settings,
-                            contentDescription = stringResource(R.string.settings),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
+        },
+        bottomBar = {
+            AppNavigationBar(selectedTab = selectedTab, onTabSelect = { selectedTab = it })
         },
     ) { padding ->
         Box(
@@ -176,8 +185,14 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            when (val s = state) {
-                is UiState.Idle -> IdleContent(
+            when (selectedTab) {
+                AppTab.SCAN -> ScanTabContent(
+                    state = state,
+                    filteredGroups = filteredGroups,
+                    isLabeling = isLabeling,
+                    selectedCategory = selectedCategory,
+                    keyword = keyword,
+                    favoriteIds = favoriteIds,
                     permissionGranted = permission.status.isGranted,
                     onScan = {
                         if (permission.status.isGranted) {
@@ -187,27 +202,29 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                             permission.launchPermissionRequest()
                         }
                     },
-                )
-
-                is UiState.Scanning -> ScanningIndicator(s)
-
-                is UiState.Done -> GroupListScreen(
-                    groups = filteredGroups,
-                    totalSaving = s.totalSavingBytes,
-                    totalGroupCount = s.groups.size,
-                    isLabeling = isLabeling,
-                    selectedCategory = selectedCategory,
-                    keyword = keyword,
                     onCategorySelect = { viewModel.setCategory(it) },
                     onKeywordChange = { viewModel.setKeyword(it) },
-                    onGroupClick = { group -> viewModel.selectGroup(group) },
+                    onGroupClick = { viewModel.selectGroup(it) },
                     onQuickDelete = { group ->
                         val toDelete = group.photos.filter { it.id != group.bestPhotoId }
                         if (toDelete.isNotEmpty()) viewModel.requestDelete(toDelete)
                     },
+                    onRetry = { viewModel.reset() },
                 )
 
-                is UiState.Error -> ErrorContent(message = s.message, onRetry = { viewModel.reset() })
+                AppTab.FAVORITES -> FavoritesScreen(
+                    scanState = state,
+                    favoriteIds = favoriteIds,
+                    onToggleFavorite = { viewModel.toggleFavorite(it) },
+                )
+
+                AppTab.SETTINGS -> SettingsContent(
+                    periodicNotification = periodicNotification,
+                    screenshotNotification = screenshotNotification,
+                    onPeriodicNotificationChange = { viewModel.setPeriodicNotification(it) },
+                    onScreenshotNotificationChange = { viewModel.setScreenshotNotification(it) },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
         }
     }
@@ -220,15 +237,74 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             onDismiss = { showFilterSheet = false },
         )
     }
+}
 
-    if (showSettingsSheet) {
-        SettingsSheet(
-            periodicNotification = periodicNotification,
-            screenshotNotification = screenshotNotification,
-            onPeriodicNotificationChange = { viewModel.setPeriodicNotification(it) },
-            onScreenshotNotificationChange = { viewModel.setScreenshotNotification(it) },
-            onDismiss = { showSettingsSheet = false },
+@Composable
+private fun AppNavigationBar(selectedTab: AppTab, onTabSelect: (AppTab) -> Unit) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+    ) {
+        listOf(
+            Triple(AppTab.SCAN, Icons.Outlined.PhotoLibrary, R.string.tab_scan),
+            Triple(AppTab.FAVORITES, Icons.Outlined.Star, R.string.tab_favorites),
+            Triple(AppTab.SETTINGS, Icons.Outlined.Settings, R.string.settings),
+        ).forEach { (tab, icon, labelRes) ->
+            val selected = selectedTab == tab
+            NavigationBarItem(
+                selected = selected,
+                onClick = { onTabSelect(tab) },
+                icon = {
+                    Icon(
+                        imageVector = if (selected && tab == AppTab.FAVORITES) Icons.Filled.Star else icon,
+                        contentDescription = null,
+                    )
+                },
+                label = { Text(stringResource(labelRes), style = MaterialTheme.typography.labelSmall) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScanTabContent(
+    state: UiState,
+    filteredGroups: List<com.unam.photocleaner.domain.model.PhotoGroup>,
+    isLabeling: Boolean,
+    selectedCategory: String?,
+    keyword: String,
+    favoriteIds: Set<Long>,
+    permissionGranted: Boolean,
+    onScan: () -> Unit,
+    onCategorySelect: (String?) -> Unit,
+    onKeywordChange: (String) -> Unit,
+    onGroupClick: (com.unam.photocleaner.domain.model.PhotoGroup) -> Unit,
+    onQuickDelete: (com.unam.photocleaner.domain.model.PhotoGroup) -> Unit,
+    onRetry: () -> Unit,
+) {
+    when (val s = state) {
+        is UiState.Idle -> IdleContent(permissionGranted = permissionGranted, onScan = onScan)
+        is UiState.Scanning -> ScanningIndicator(s)
+        is UiState.Done -> GroupListScreen(
+            groups = filteredGroups,
+            totalSaving = s.totalSavingBytes,
+            totalGroupCount = s.groups.size,
+            isLabeling = isLabeling,
+            selectedCategory = selectedCategory,
+            keyword = keyword,
+            onCategorySelect = onCategorySelect,
+            onKeywordChange = onKeywordChange,
+            onGroupClick = onGroupClick,
+            onQuickDelete = onQuickDelete,
         )
+        is UiState.Error -> ErrorContent(message = s.message, onRetry = onRetry)
     }
 }
 
@@ -242,7 +318,6 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
     ) {
         Spacer(Modifier.weight(1f))
 
-        // 앱 아이콘
         Box(
             modifier = Modifier
                 .size(96.dp)
@@ -271,7 +346,7 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
         Spacer(Modifier.height(8.dp))
 
         Text(
-            "중복·유사 사진과 영상을 찾아\n소중한 저장 공간을 확보하세요",
+            stringResource(R.string.idle_subtitle),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -279,7 +354,6 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
 
         Spacer(Modifier.weight(1f))
 
-        // 기능 목록 카드
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -290,7 +364,7 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
                 FeatureRow(
                     icon = Icons.Outlined.AutoDelete,
                     iconBg = MaterialTheme.colorScheme.primary,
-                    label = "중복·유사 사진 자동 탐지",
+                    label = stringResource(R.string.feature_auto_detect),
                 )
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 58.dp),
@@ -299,7 +373,7 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
                 FeatureRow(
                     icon = Icons.Outlined.Videocam,
                     iconBg = iOSGreen,
-                    label = "중복 영상·짧은 클립 정리",
+                    label = stringResource(R.string.feature_video_clean),
                 )
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 58.dp),
@@ -308,7 +382,7 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
                 FeatureRow(
                     icon = Icons.Outlined.Star,
                     iconBg = MaterialTheme.colorScheme.tertiary,
-                    label = "즐겨찾기로 실수 삭제 방지",
+                    label = stringResource(R.string.feature_favorite_protect),
                 )
             }
         }
@@ -380,7 +454,7 @@ private fun ScanningIndicator(s: UiState.Scanning) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
                     if (s.total == 0) stringResource(R.string.loading_photos)
-                    else if (s.label.isNotEmpty()) s.label else "분석 중…",
+                    else if (s.label.isNotEmpty()) s.label else stringResource(R.string.analyzing),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 if (s.total > 0) {
