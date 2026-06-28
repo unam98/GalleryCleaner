@@ -34,7 +34,7 @@ class NotificationHelper @Inject constructor(
         }
     }
 
-    fun showDuplicateFound(groupCount: Int, savingBytes: Long) {
+    fun showDuplicateFound(groupCount: Int, savingBytes: Long, sinceMs: Long) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -43,6 +43,7 @@ class NotificationHelper @Inject constructor(
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(MainActivity.EXTRA_AUTO_SCAN, true)
+            putExtra(MainActivity.EXTRA_SCAN_SINCE_MS, sinceMs)
         }
         val pendingIntent = PendingIntent.getActivity(
             context, 0, intent,

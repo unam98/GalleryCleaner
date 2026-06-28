@@ -19,9 +19,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 알림 탭으로 진입 시 바로 스캔 시작
+        // 알림 탭으로 진입 시 워커가 스캔한 동일 기간으로 재스캔
         if (intent.getBooleanExtra(EXTRA_AUTO_SCAN, false)) {
-            viewModel.scan()
+            val sinceMs = intent.getLongExtra(EXTRA_SCAN_SINCE_MS, -1L).takeIf { it >= 0 }
+            viewModel.scan(overrideSinceMs = sinceMs)
         }
 
         setContent {
@@ -33,5 +34,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_AUTO_SCAN = "extra_auto_scan"
+        const val EXTRA_SCAN_SINCE_MS = "extra_scan_since_ms"
     }
 }

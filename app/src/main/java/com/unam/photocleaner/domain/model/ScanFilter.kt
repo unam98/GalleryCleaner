@@ -6,8 +6,9 @@ data class ScanFilter(
     val period: ScanPeriod = ScanPeriod.ALL,
     val minSizeBytes: Long = 0L,
     val maxPhotoCount: Int? = null,
+    val customSinceMs: Long? = null,
 ) {
-    fun sinceTimestampMs(): Long? = period.days?.let {
+    fun sinceTimestampMs(): Long? = customSinceMs ?: period.days?.let {
         System.currentTimeMillis() - TimeUnit.DAYS.toMillis(it.toLong())
     }
 }

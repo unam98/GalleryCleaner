@@ -73,4 +73,7 @@ dependencies {
 
     // Permissions
     implementation(libs.accompanist.permissions)
+
+    // ML Kit
+    implementation(libs.mlkit.image.labeling)
 }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,13 +13,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,18 +42,42 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.unam.photocleaner.domain.model.Photo
 import com.unam.photocleaner.domain.model.PhotoGroup
+import com.unam.photocleaner.presentation.MainViewModel
 
 @Composable
 fun GroupListScreen(
     groups: List<PhotoGroup>,
     totalSaving: Long,
+    totalGroupCount: Int,
+    isLabeling: Boolean,
+    selectedCategory: String?,
+    keyword: String,
+    onCategorySelect: (String?) -> Unit,
+    onKeywordChange: (String) -> Unit,
     onGroupClick: (PhotoGroup) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        SavingSummaryCard(totalSaving, groups.size)
+        SavingSummaryCard(
+            totalSaving = totalSaving,
+            totalGroupCount = totalGroupCount,
+            filteredCount = groups.size,
+        )
+        CategoryFilterRow(
+            isLabeling = isLabeling,
+            selectedCategory = selectedCategory,
+            onCategorySelect = onCategorySelect,
+        )
+        KeywordSearchField(
+            keyword = keyword,
+            onKeywordChange = onKeywordChange,
+        )
         if (groups.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("중복 사진이 없습니다", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (selectedCategory != null || keyword.isNotBlank()) "조건에 맞는 그룹이 없습니다"
+                    else "중복 사진이 없습니다",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
             }
         } else {
             LazyColumn {
@@ -56,7 +91,8 @@ fun GroupListScreen(
 }
 
 @Composable
-private fun SavingSummaryCard(bytes: Long, groupCount: Int) {
+private fun SavingSummaryCard(totalSaving: Long, totalGroupCount: Int, filteredCount: Int) {
+    val isFiltered = filteredCount < totalGroupCount
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -70,19 +106,92 @@ private fun SavingSummaryCard(bytes: Long, groupCount: Int) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                formatBytes(bytes),
+                formatBytes(totalSaving),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "그룹 ${groupCount}개 발견",
+                if (isFiltered) "전체 ${totalGroupCount}그룹 중 ${filteredCount}개 표시"
+                else "그룹 ${totalGroupCount}개 발견",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
     }
+}
+
+@Composable
+private fun CategoryFilterRow(
+    isLabeling: Boolean,
+    selectedCategory: String?,
+    onCategorySelect: (String?) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+    ) {
+        Text(
+            "카테고리",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (isLabeling) {
+            Spacer(Modifier.width(6.dp))
+            CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "분석 중...",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        item {
+            FilterChip(
+                selected = selectedCategory == null,
+                onClick = { onCategorySelect(null) },
+                enabled = !isLabeling,
+                label = { Text("전체") },
+            )
+        }
+        items(MainViewModel.CATEGORY_LABELS.keys.toList()) { category ->
+            FilterChip(
+                selected = selectedCategory == category,
+                onClick = { onCategorySelect(if (selectedCategory == category) null else category) },
+                enabled = !isLabeling,
+                label = { Text(category) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun KeywordSearchField(keyword: String, onKeywordChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = keyword,
+        onValueChange = onKeywordChange,
+        placeholder = { Text("키워드 검색 (예: 강아지, sky)") },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        trailingIcon = {
+            if (keyword.isNotEmpty()) {
+                IconButton(onClick = { onKeywordChange("") }) {
+                    Icon(Icons.Default.Clear, contentDescription = "지우기")
+                }
+            }
+        },
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable

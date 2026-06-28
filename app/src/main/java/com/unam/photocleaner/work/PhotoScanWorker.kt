@@ -34,6 +34,7 @@ class PhotoScanWorker @AssistedInject constructor(
             notificationHelper.showDuplicateFound(
                 groupCount = groups.size,
                 savingBytes = groups.sumOf { it.potentialSavingBytes },
+                sinceMs = lastScanned,
             )
         }
 

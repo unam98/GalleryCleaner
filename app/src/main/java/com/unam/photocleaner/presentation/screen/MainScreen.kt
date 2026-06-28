@@ -46,6 +46,10 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedGroup by viewModel.selectedGroup.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val filteredGroups by viewModel.filteredGroups.collectAsStateWithLifecycle()
+    val isLabeling by viewModel.isLabeling.collectAsStateWithLifecycle()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val keyword by viewModel.keyword.collectAsStateWithLifecycle()
     var showFilterSheet by remember { mutableStateOf(false) }
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -109,8 +113,14 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                 is UiState.Scanning -> ScanningIndicator(s)
 
                 is UiState.Done -> GroupListScreen(
-                    groups = s.groups,
+                    groups = filteredGroups,
                     totalSaving = s.totalSavingBytes,
+                    totalGroupCount = s.groups.size,
+                    isLabeling = isLabeling,
+                    selectedCategory = selectedCategory,
+                    keyword = keyword,
+                    onCategorySelect = { viewModel.setCategory(it) },
+                    onKeywordChange = { viewModel.setKeyword(it) },
                     onGroupClick = { group -> viewModel.selectGroup(group) },
                 )
 

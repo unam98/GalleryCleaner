@@ -8,13 +8,18 @@ import com.unam.photocleaner.data.local.MediaStoreDataSource
 import com.unam.photocleaner.domain.model.PhotoGroup
 import com.unam.photocleaner.domain.model.ScanFilter
 import com.unam.photocleaner.domain.usecase.GroupPhotosUseCase
+import com.unam.photocleaner.util.MlKitLabelExtractor
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,6 +27,7 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val mediaStore: MediaStoreDataSource,
     private val groupPhotos: GroupPhotosUseCase,
+    private val labelExtractor: MlKitLabelExtractor,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
@@ -36,12 +42,60 @@ class MainViewModel @Inject constructor(
     private val _events = MutableSharedFlow<MainEvent>()
     val events: SharedFlow<MainEvent> = _events.asSharedFlow()
 
+    // 스캔 후 ML Kit 레이블 (photoId → labels)
+    private val _photoLabels = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
+
+    // ML Kit 레이블링 진행 여부
+    private val _isLabeling = MutableStateFlow(false)
+    val isLabeling: StateFlow<Boolean> = _isLabeling.asStateFlow()
+
+    // 카테고리 필터 (null = 전체)
+    private val _selectedCategory = MutableStateFlow<String?>(null)
+    val selectedCategory: StateFlow<String?> = _selectedCategory.asStateFlow()
+
+    // 키워드 필터
+    private val _keyword = MutableStateFlow("")
+    val keyword: StateFlow<String> = _keyword.asStateFlow()
+
+    // 필터 적용된 그룹 목록
+    val filteredGroups: StateFlow<List<PhotoGroup>> = combine(
+        _state, _photoLabels, _selectedCategory, _keyword,
+    ) { state, labels, category, keyword ->
+        val groups = (state as? UiState.Done)?.groups ?: return@combine emptyList()
+        if (category == null && keyword.isBlank()) return@combine groups
+
+        groups.filter { group ->
+            group.photos.any { photo ->
+                val photoLabels = labels[photo.id] ?: emptyList()
+                val matchesCategory = category == null ||
+                    CATEGORY_LABELS[category]?.any { labelWord ->
+                        photoLabels.any { it.equals(labelWord, ignoreCase = true) }
+                    } == true
+                val matchesKeyword = keyword.isBlank() || run {
+                    val enKeyword = KO_EN_MAP[keyword.trim().lowercase()] ?: keyword.trim()
+                    photoLabels.any { it.contains(enKeyword, ignoreCase = true) } ||
+                        photo.displayName.contains(keyword.trim(), ignoreCase = true)
+                }
+                matchesCategory && matchesKeyword
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private var pendingDeleteIds: List<Long> = emptyList()
 
     fun updateFilter(filter: ScanFilter) { _filter.value = filter }
 
-    fun scan() {
-        val f = _filter.value
+    fun setCategory(category: String?) { _selectedCategory.value = category }
+
+    fun setKeyword(keyword: String) { _keyword.value = keyword }
+
+    fun scan(overrideSinceMs: Long? = null) {
+        val f = if (overrideSinceMs != null) ScanFilter(customSinceMs = overrideSinceMs) else _filter.value
+        _selectedCategory.value = null
+        _keyword.value = ""
+        _photoLabels.value = emptyMap()
+        _isLabeling.value = false
+
         viewModelScope.launch {
             _state.value = UiState.Scanning()
             runCatching {
@@ -59,14 +113,33 @@ class MainViewModel @Inject constructor(
                     groups = groups,
                     totalSavingBytes = groups.sumOf { it.potentialSavingBytes },
                 )
+                startLabeling(groups)
             }.onFailure { e ->
                 _state.value = UiState.Error(e.message ?: "Unknown error")
             }
         }
     }
 
+    private fun startLabeling(groups: List<PhotoGroup>) {
+        if (groups.isEmpty()) return
+        _isLabeling.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val allPhotos = groups.flatMap { it.photos }.distinctBy { it.id }
+            val labels = mutableMapOf<Long, List<String>>()
+            allPhotos.forEach { photo ->
+                labels[photo.id] = labelExtractor.getLabels(photo.uri)
+                _photoLabels.value = labels.toMap()
+            }
+            _isLabeling.value = false
+        }
+    }
+
     fun reset() {
         _state.value = UiState.Idle
+        _selectedCategory.value = null
+        _keyword.value = ""
+        _photoLabels.value = emptyMap()
+        _isLabeling.value = false
     }
 
     fun selectGroup(group: PhotoGroup) {
@@ -90,7 +163,6 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    // Android 10+ 시스템 다이얼로그에서 사용자가 OK 누른 후 호출
     fun onSystemDeleteConfirmed() {
         applyDeletion(pendingDeleteIds)
         pendingDeleteIds = emptyList()
@@ -113,9 +185,29 @@ class MainViewModel @Inject constructor(
             groups = updatedGroups,
             totalSavingBytes = updatedGroups.sumOf { it.potentialSavingBytes },
         )
-        // 현재 열려있는 그룹도 업데이트 (삭제 후 남은 사진 반영)
         val groupId = _selectedGroup.value?.id
         _selectedGroup.value = updatedGroups.find { it.id == groupId }
+    }
+
+    companion object {
+        val CATEGORY_LABELS = linkedMapOf(
+            "인물" to setOf("Person", "Face", "Human", "People", "Man", "Woman", "Child", "Forehead", "Smile", "Selfie", "Hair"),
+            "음식" to setOf("Food", "Dish", "Meal", "Cuisine", "Drink", "Ingredient", "Fast food", "Recipe", "Baking", "Vegetable", "Fruit", "Snack"),
+            "풍경" to setOf("Sky", "Mountain", "Landscape", "Nature", "Beach", "Ocean", "Sea", "Forest", "Tree", "Flower", "River", "Lake", "Sunrise", "Sunset", "Cloud", "Field"),
+            "동물" to setOf("Animal", "Dog", "Cat", "Bird", "Fish", "Pet", "Wildlife", "Mammal", "Insect", "Reptile"),
+            "스크린샷" to setOf("Screenshot", "Font", "Software", "Display device", "Text", "Multimedia", "Technology"),
+            "건물·실내" to setOf("Building", "Architecture", "Interior design", "Room", "House", "Furniture", "Urban area", "Street"),
+        )
+
+        private val KO_EN_MAP = mapOf(
+            "인물" to "person", "사람" to "person", "얼굴" to "face",
+            "음식" to "food", "밥" to "food", "먹" to "food", "요리" to "cuisine",
+            "풍경" to "landscape", "하늘" to "sky", "산" to "mountain", "바다" to "ocean", "꽃" to "flower", "나무" to "tree",
+            "동물" to "animal", "강아지" to "dog", "개" to "dog", "고양이" to "cat", "새" to "bird",
+            "스크린샷" to "screenshot", "화면" to "screenshot",
+            "건물" to "building", "집" to "house", "실내" to "interior",
+            "자동차" to "vehicle", "차" to "vehicle",
+        )
     }
 }
 
