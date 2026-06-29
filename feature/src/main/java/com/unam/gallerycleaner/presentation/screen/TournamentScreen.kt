@@ -6,13 +6,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -31,11 +33,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -94,11 +103,12 @@ private fun TournamentMatchScreen(
 ) {
     val left = state.left ?: return
     val right = state.right
+    var isVertical by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 16.dp, bottom = 32.dp),
+            .padding(top = 16.dp, bottom = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 헤더
@@ -119,9 +129,20 @@ private fun TournamentMatchScreen(
                     color = Color.White.copy(alpha = 0.7f),
                 )
             }
+            // 레이아웃 토글 버튼
+            IconButton(
+                onClick = { isVertical = !isVertical },
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
+            ) {
+                Icon(
+                    if (isVertical) Icons.Outlined.SwapHoriz else Icons.Filled.SwapVert,
+                    contentDescription = "레이아웃 전환",
+                    tint = Color.White.copy(alpha = 0.7f),
+                )
+            }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         Text(
             stringResource(R.string.tournament_instruction),
@@ -130,61 +151,113 @@ private fun TournamentMatchScreen(
             textAlign = TextAlign.Center,
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-        // 대결 카드들
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            PhotoCard(
-                photo = left,
-                onClick = { onPick(left) },
-                modifier = Modifier.weight(1f),
-            )
-
-            // VS 구분선
-            Box(
+        // 대결 카드 — 가로/세로 전환
+        if (isVertical) {
+            // 세로 배치: 위/아래
+            Column(
                 modifier = Modifier
-                    .width(32.dp)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
-                Text(
-                    "VS",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 13.sp,
-                )
-            }
-
-            if (right != null) {
                 PhotoCard(
-                    photo = right,
-                    onClick = { onPick(right) },
-                    modifier = Modifier.weight(1f),
+                    photo = left,
+                    onClick = { onPick(left) },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                 )
-            } else {
-                // 홀수 — 빈 자리 표시
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.05f)),
+                    modifier = Modifier.fillMaxWidth().height(28.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        stringResource(R.string.tournament_auto_advance),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.4f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(8.dp),
+                        "VS",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
                     )
+                }
+                if (right != null) {
+                    PhotoCard(
+                        photo = right,
+                        onClick = { onPick(right) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.05f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            stringResource(R.string.tournament_auto_advance),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.4f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                }
+            }
+        } else {
+            // 가로 배치: 좌/우 (기본)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                PhotoCard(
+                    photo = left,
+                    onClick = { onPick(left) },
+                    modifier = Modifier.weight(1f),
+                )
+
+                Box(
+                    modifier = Modifier
+                        .width(24.dp)
+                        .fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "VS",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                    )
+                }
+
+                if (right != null) {
+                    PhotoCard(
+                        photo = right,
+                        onClick = { onPick(right) },
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.05f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            stringResource(R.string.tournament_auto_advance),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.4f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
                 }
             }
         }
@@ -197,17 +270,52 @@ private fun PhotoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+
     Box(
         modifier = modifier
             .fillMaxHeight()
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() },
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = {
+                        // 확대 중이면 탭으로 초기화, 아니면 선택
+                        if (scale > 1f) {
+                            scale = 1f; offsetX = 0f; offsetY = 0f
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onDoubleTap = { scale = 1f; offsetX = 0f; offsetY = 0f },
+                )
+            }
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val newScale = (scale * zoom).coerceIn(1f, 5f)
+                    scale = newScale
+                    if (newScale > 1f) {
+                        offsetX += pan.x
+                        offsetY += pan.y
+                    } else {
+                        offsetX = 0f; offsetY = 0f
+                    }
+                }
+            },
     ) {
         AsyncImage(
             model = photo.uri,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                },
         )
         // 사진 정보 오버레이 (하단)
         Box(
@@ -227,19 +335,21 @@ private fun PhotoCard(
                 color = Color.White.copy(alpha = 0.85f),
             )
         }
-        // 탭 힌트 오버레이
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        ) {
-            Text(
-                stringResource(R.string.tournament_pick_hint),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-            )
+        // 확대 중이 아닐 때만 선택 힌트 표시
+        if (scale <= 1f) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    stringResource(R.string.tournament_pick_hint),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
@@ -257,7 +367,6 @@ private fun TournamentResultScreen(
             .padding(top = 16.dp, bottom = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 헤더
         Box(modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)) {
                 Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
@@ -281,7 +390,6 @@ private fun TournamentResultScreen(
 
         Spacer(Modifier.height(24.dp))
 
-        // 우승 사진
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -294,7 +402,6 @@ private fun TournamentResultScreen(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
-            // 트로피 뱃지
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -321,7 +428,6 @@ private fun TournamentResultScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        // 액션 버튼들
         Button(
             onClick = onKeepWinner,
             modifier = Modifier

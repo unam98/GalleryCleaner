@@ -2,6 +2,7 @@ package com.unam.gallerycleaner.presentation.screen
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -186,6 +187,7 @@ fun GroupDetailScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PhotoFullScreenViewer(
     photos: List<Photo>,
@@ -240,6 +242,7 @@ internal fun PhotoFullScreenViewer(
                         )
                         .transformable(
                             state = transformableState,
+                            canPan = { scale > 1f },
                             enabled = page == pagerState.currentPage,
                         )
                         .pointerInput(page) {

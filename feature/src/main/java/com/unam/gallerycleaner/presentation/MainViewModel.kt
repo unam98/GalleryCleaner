@@ -211,7 +211,9 @@ class MainViewModel @Inject constructor(
                 }
 
                 _state.value = UiState.Scanning(current = 0, total = photos.size, startedAtMs = startedAtMs)
+                var scanTotal = photos.size
                 val photoGroups = groupPhotos.execute(photos) { current, total, label ->
+                    scanTotal = total
                     _state.value = UiState.Scanning(
                         current = current,
                         total = total,
@@ -224,10 +226,17 @@ class MainViewModel @Inject constructor(
                 val groups = (photoGroups + videoGroups).sortedByDescending { it.potentialSavingBytes }
 
                 if (groups.isNotEmpty()) {
-                    _state.value = UiState.Scanning(isLabelingPhase = true, startedAtMs = startedAtMs)
                     val allPhotos = groups.flatMap { it.photos }.distinctBy { it.id }
+                    val labelTotal = scanTotal + allPhotos.size
                     _photoLabels.value = withContext(Dispatchers.IO) {
-                        labelExtractor.getLabelsForPhotos(allPhotos)
+                        labelExtractor.getLabelsForPhotos(allPhotos) { labelCurr, _ ->
+                            _state.value = UiState.Scanning(
+                                current = scanTotal + labelCurr,
+                                total = labelTotal,
+                                isLabelingPhase = true,
+                                startedAtMs = startedAtMs,
+                            )
+                        }
                     }
                 }
                 groups
@@ -385,7 +394,14 @@ class MainViewModel @Inject constructor(
 
     fun keepTournamentWinner(winnerPhoto: Photo) {
         val tournament = _tournamentState.value ?: return
-        val group = (_state.value as? UiState.Done)?.groups?.find { it.id == tournament.groupId } ?: return
+        val currentDone = _state.value as? UiState.Done ?: return
+        val group = currentDone.groups.find { it.id == tournament.groupId } ?: return
+        // Promote winner to bestPhotoId before deletion so applyDeletion preserves it
+        _state.value = currentDone.copy(
+            groups = currentDone.groups.map { g ->
+                if (g.id == group.id) g.copy(bestPhotoId = winnerPhoto.id) else g
+            },
+        )
         val toDelete = group.photos.filter { it.id != winnerPhoto.id }
         if (toDelete.isNotEmpty()) requestDelete(toDelete)
         _tournamentState.value = null

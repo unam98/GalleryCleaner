@@ -10,7 +10,15 @@ import com.unam.gallerycleaner.data.local.db.PhotoLabelDao
 import com.unam.gallerycleaner.data.local.db.PhotoLabelEntity
 import com.unam.gallerycleaner.domain.model.Photo
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -24,17 +32,30 @@ class MlKitLabelExtractor @Inject constructor(
         ImageLabelerOptions.Builder().setConfidenceThreshold(0.65f).build()
     )
 
-    // 배치 처리: 캐시 히트는 즉시 반환, 미스만 ML Kit 실행 후 저장
-    suspend fun getLabelsForPhotos(photos: List<Photo>): Map<Long, List<String>> {
+    suspend fun getLabelsForPhotos(
+        photos: List<Photo>,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+    ): Map<Long, List<String>> = coroutineScope {
         val cached = photoLabelDao.getByPhotoIds(photos.map { it.id })
             .associate { it.photoId to it.labels.split(",").filter { l -> l.isNotEmpty() } }
 
         val uncached = photos.filter { it.id !in cached }
-        val fresh = mutableMapOf<Long, List<String>>()
-        uncached.forEach { photo ->
-            val labels = runMlKit(photo.uri)
-            fresh[photo.id] = labels
-        }
+        val total = photos.size
+        val done = AtomicInteger(total - uncached.size)
+        onProgress(done.get(), total)
+
+        val semaphore = Semaphore(LABEL_CONCURRENCY)
+        val fresh = ConcurrentHashMap<Long, List<String>>()
+
+        uncached.map { photo ->
+            async(Dispatchers.IO) {
+                semaphore.withPermit {
+                    val labels = runMlKit(photo.uri)
+                    fresh[photo.id] = labels
+                    onProgress(done.incrementAndGet(), total)
+                }
+            }
+        }.awaitAll()
 
         if (fresh.isNotEmpty()) {
             photoLabelDao.upsertAll(fresh.map { (id, labels) ->
@@ -42,7 +63,7 @@ class MlKitLabelExtractor @Inject constructor(
             })
         }
 
-        return cached + fresh
+        cached + fresh
     }
 
     private suspend fun runMlKit(uri: Uri): List<String> = suspendCancellableCoroutine { cont ->
@@ -66,5 +87,9 @@ class MlKitLabelExtractor @Inject constructor(
         } catch (e: Exception) {
             if (cont.isActive) cont.resume(emptyList())
         }
+    }
+
+    companion object {
+        private const val LABEL_CONCURRENCY = 6
     }
 }

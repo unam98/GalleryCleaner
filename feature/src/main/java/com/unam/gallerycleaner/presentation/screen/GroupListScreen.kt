@@ -1,6 +1,7 @@
 package com.unam.gallerycleaner.presentation.screen
 
 import com.unam.gallerycleaner.domain.util.formatBytes
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,15 +10,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -34,22 +38,36 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.unam.gallerycleaner.feature.R
 import com.unam.gallerycleaner.domain.model.GroupType
 import com.unam.gallerycleaner.domain.model.Photo
 import com.unam.gallerycleaner.domain.model.PhotoGroup
 import com.unam.gallerycleaner.presentation.MainViewModel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+
+private const val HEADER_ITEM_COUNT = 3
+private const val PRELOAD_AHEAD = 6
 
 @Composable
 fun GroupListScreen(
@@ -63,77 +81,139 @@ fun GroupListScreen(
     onGroupClick: (PhotoGroup) -> Unit,
     onQuickDelete: (PhotoGroup) -> Unit,
 ) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(bottom = 32.dp),
-    ) {
-        item { SavingHeaderCard(totalSaving = totalSaving, totalGroupCount = totalGroupCount, filteredCount = groups.size) }
-        item { Spacer(Modifier.height(8.dp)) }
-        item {
-            CategoryFilterRow(
-                selectedCategories = selectedCategories,
-                availableCategories = availableCategories,
-                onCategoryToggle = onCategoryToggle,
-                onClearCategories = onClearCategories,
-            )
-        }
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
 
-        if (groups.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (selectedCategories.isNotEmpty())
-                            stringResource(R.string.no_matching_groups)
-                        else stringResource(R.string.no_duplicates),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
+    // Preload thumbnails ahead of visible area
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { lastVisible ->
+                for (itemIdx in (lastVisible + 1)..(lastVisible + PRELOAD_AHEAD)) {
+                    val groupIdx = itemIdx - HEADER_ITEM_COUNT
+                    val group = groups.getOrNull(groupIdx) ?: continue
+                    group.photos.take(2).forEach { photo ->
+                        context.imageLoader.enqueue(
+                            ImageRequest.Builder(context).data(photo.uri).build()
+                        )
+                    }
                 }
             }
-        } else {
-            itemsIndexed(
-                items = groups,
-                key = { _, group -> group.id },
-            ) { index, group ->
-                val isFirst = index == 0
-                val isLast = index == groups.lastIndex
-                val shape = when {
-                    isFirst && isLast -> RoundedCornerShape(12.dp)
-                    isFirst -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-                    isLast -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
-                    else -> RoundedCornerShape(0.dp)
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clip(shape)
-                        .background(MaterialTheme.colorScheme.surface),
-                ) {
-                    Column {
-                        PhotoGroupRow(
-                            group = group,
-                            onClick = { onGroupClick(group) },
-                            onQuickDelete = { onQuickDelete(group) },
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            item { SavingHeaderCard(totalSaving = totalSaving, totalGroupCount = totalGroupCount, filteredCount = groups.size) }
+            item { Spacer(Modifier.height(8.dp)) }
+            item {
+                CategoryFilterRow(
+                    selectedCategories = selectedCategories,
+                    availableCategories = availableCategories,
+                    onCategoryToggle = onCategoryToggle,
+                    onClearCategories = onClearCategories,
+                )
+            }
+
+            if (groups.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (selectedCategories.isNotEmpty())
+                                stringResource(R.string.no_matching_groups)
+                            else stringResource(R.string.no_duplicates),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
                         )
-                        if (!isLast) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 88.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant,
+                    }
+                }
+            } else {
+                itemsIndexed(
+                    items = groups,
+                    key = { _, group -> group.id },
+                ) { index, group ->
+                    val isFirst = index == 0
+                    val isLast = index == groups.lastIndex
+                    val shape = when {
+                        isFirst && isLast -> RoundedCornerShape(12.dp)
+                        isFirst -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+                        isLast -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                        else -> RoundedCornerShape(0.dp)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(shape)
+                            .background(MaterialTheme.colorScheme.surface),
+                    ) {
+                        Column {
+                            PhotoGroupRow(
+                                group = group,
+                                onClick = { onGroupClick(group) },
+                                onQuickDelete = { onQuickDelete(group) },
                             )
+                            if (!isLast) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(start = 88.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+
+        // Vertical scrollbar indicator
+        VerticalScrollbar(
+            state = listState,
+            thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+            modifier = Modifier.align(Alignment.CenterEnd),
+        )
+    }
+}
+
+@Composable
+private fun VerticalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    thumbColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val totalItems = state.layoutInfo.totalItemsCount
+    val visibleItems = state.layoutInfo.visibleItemsInfo.size
+    if (totalItems <= visibleItems || totalItems == 0) return
+
+    val thumbFraction = visibleItems.toFloat() / totalItems
+    val maxScroll = (totalItems - visibleItems).coerceAtLeast(1).toFloat()
+    val scrollFraction = state.firstVisibleItemIndex / maxScroll
+
+    Canvas(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(4.dp)
+            .padding(vertical = 16.dp),
+    ) {
+        val thumbHeight = (size.height * thumbFraction).coerceAtLeast(48f)
+        val thumbTop = ((size.height - thumbHeight) * scrollFraction.coerceIn(0f, 1f))
+        drawRoundRect(
+            color = thumbColor,
+            topLeft = Offset(0f, thumbTop),
+            size = Size(size.width, thumbHeight),
+            cornerRadius = CornerRadius(size.width / 2),
+        )
     }
 }
 
@@ -198,7 +278,6 @@ private fun CategoryFilterRow(
     onCategoryToggle: (String) -> Unit,
     onClearCategories: () -> Unit,
 ) {
-    // CATEGORY_LABELS 순서를 유지하면서 실제 결과에 있는 것만 표시
     val orderedCategories = remember(availableCategories) {
         MainViewModel.CATEGORY_LABELS.keys.filter { it in availableCategories }
     }
@@ -250,13 +329,11 @@ private val THUMB_SIZE = 56.dp
 private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete: () -> Unit) {
     val isVideo = group.type == GroupType.VIDEO_DUPLICATE || group.type == GroupType.SHORT_VIDEO
 
-    // BEST를 항상 첫 번째로 정렬
     val sorted = remember(group.id, group.bestPhotoId) {
         val best = group.photos.find { it.id == group.bestPhotoId }
         val rest = group.photos.filter { it.id != group.bestPhotoId }
         if (best != null) listOf(best) + rest else group.photos
     }
-    // 3장 이하: 전부 표시 / 4장 이상: 앞 2장 + "+N" 슬롯
     val showCount = if (sorted.size > 3) 2 else sorted.size
     val overflow = sorted.size - showCount
 
@@ -268,11 +345,9 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // 썸네일 (모두 같은 크기)
         sorted.take(showCount).forEach { photo ->
             GroupThumbnail(photo = photo, isBest = photo.id == group.bestPhotoId)
         }
-        // 나머지 개수 슬롯
         if (overflow > 0) {
             Box(
                 modifier = Modifier
@@ -291,7 +366,6 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
 
         Spacer(Modifier.weight(1f))
 
-        // 절약 용량 (고정)
         Text(
             formatBytes(group.potentialSavingBytes),
             style = MaterialTheme.typography.bodySmall,
@@ -299,7 +373,6 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
             fontWeight = FontWeight.SemiBold,
         )
 
-        // 퀵 삭제 버튼 (고정)
         IconButton(
             onClick = onQuickDelete,
             modifier = Modifier.size(40.dp),
@@ -360,4 +433,3 @@ private fun GroupThumbnail(photo: Photo, isBest: Boolean) {
         }
     }
 }
-

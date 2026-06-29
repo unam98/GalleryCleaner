@@ -479,22 +479,7 @@ private fun ScanningIndicator(s: UiState.Scanning) {
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Spacer(Modifier.height(14.dp))
-                if (s.isLabelingPhase) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        stringResource(R.string.labeling_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else if (s.total > 0) {
+                if (s.total > 0) {
                     val progress = s.current.toFloat() / s.total
                     LinearProgressIndicator(
                         progress = { progress },
@@ -502,7 +487,8 @@ private fun ScanningIndicator(s: UiState.Scanning) {
                             .fillMaxWidth()
                             .height(6.dp)
                             .clip(RoundedCornerShape(3.dp)),
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (s.isLabelingPhase) MaterialTheme.colorScheme.tertiary
+                                else MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.outlineVariant,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -511,18 +497,18 @@ private fun ScanningIndicator(s: UiState.Scanning) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
-                            etaText ?: stringResource(R.string.scanning_progress, s.current, s.total),
+                            if (s.isLabelingPhase) stringResource(R.string.labeling_desc)
+                            else etaText ?: stringResource(R.string.scanning_progress, s.current, s.total),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
                             "%.0f%%".format(progress * 100),
                             style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = if (s.isLabelingPhase) MaterialTheme.colorScheme.tertiary
+                                    else MaterialTheme.colorScheme.primary,
                         )
                     }
-                }
-                if (!s.isLabelingPhase && s.total > 0) {
                     Spacer(Modifier.height(12.dp))
                     Text(
                         stringResource(R.string.scanning_hint_background),
