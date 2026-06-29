@@ -3,6 +3,7 @@ package com.unam.gallerycleaner.work
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -44,6 +45,14 @@ class ScanForegroundService : Service() {
     }
 
     private fun buildNotification(total: Int): Notification {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
+        val contentIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                this, 0, it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
         val body = if (total > 0) "총 ${total}장 분석 중 · 앱을 나가도 계속 진행돼요"
                    else "앱을 나가도 계속 진행돼요"
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -52,6 +61,7 @@ class ScanForegroundService : Service() {
             .setContentText(body)
             .setOngoing(true)
             .setSilent(true)
+            .apply { contentIntent?.let { setContentIntent(it) } }
             .build()
     }
 
