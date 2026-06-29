@@ -49,7 +49,7 @@
             android:name=".notification.FavoriteActionReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.unam.photocleaner.ACTION_MARK_FAVORITE" />
+                <action android:name="com.namilab.gallerycleaner.ACTION_MARK_FAVORITE" />
             </intent-filter>
         </receiver>
 

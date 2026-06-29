@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.unam.gallerycleaner.feature"
+    namespace = "com.namilab.gallerycleaner.feature"
     compileSdk = 36
     defaultConfig { minSdk = 26 }
     compileOptions {

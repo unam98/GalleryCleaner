@@ -87,13 +87,15 @@
     <string name="favorites_empty">즐겨찾기한 사진이 없어요</string>
     <string name="favorites_no_scan">스캔 후 즐겨찾기한 사진이\n여기에 표시됩니다</string>
 
-    <!-- Tournament (이상형 월드컵) -->
-    <string name="tournament_start">이상형 월드컵</string>
-    <string name="tournament_title">이상형 월드컵</string>
+    <!-- BattlePick (사진 대결) -->
+    <string name="tournament_start">사진 대결</string>
+    <string name="tournament_title">사진 대결</string>
     <string name="tournament_round">Round %1$d / %2$d</string>
     <string name="tournament_instruction">더 마음에 드는 사진을 선택하세요</string>
     <string name="tournament_pick_hint">선택</string>
     <string name="tournament_auto_advance">자동 진출</string>
+    <string name="tournament_layout_horizontal">가로 배치</string>
+    <string name="tournament_layout_vertical">세로 배치</string>
     <string name="tournament_result_title">🏆 최종 선택된 사진</string>
     <string name="tournament_result_desc">%1$d장 중 가장 마음에 드는 사진</string>
     <string name="tournament_keep_winner">이 사진만 남기기 (%1$d장 삭제)</string>
