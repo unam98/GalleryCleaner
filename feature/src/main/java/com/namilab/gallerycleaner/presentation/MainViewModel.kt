@@ -213,29 +213,41 @@ class MainViewModel @Inject constructor(
                 // 포그라운드 서비스 시작 (백그라운드 진행 보장)
                 ScanForegroundService.start(context, photos.size)
 
-                // 슬라이딩 윈도우 ETA: 최근 30개 아이템 처리 시각만으로 속도 추정
+                // ETA: 슬라이딩 윈도우 속도 추정 + EMA 평활화 + 2초 throttle
                 val recentTimestamps = ArrayDeque<Long>(ETA_WINDOW)
+                var smoothedEta = 0L
+                var lastEtaEmitMs = 0L
                 fun computeEta(current: Int, total: Int): Long {
                     val now = System.currentTimeMillis()
                     recentTimestamps.addLast(now)
                     if (recentTimestamps.size > ETA_WINDOW) recentTimestamps.removeFirst()
-                    if (recentTimestamps.size < 2) return 0L
+                    if (recentTimestamps.size < 2) return smoothedEta
                     val windowElapsed = now - recentTimestamps.first()
                     val windowItems = (recentTimestamps.size - 1).coerceAtLeast(1)
                     val msPerItem = windowElapsed.toDouble() / windowItems
-                    return ((total - current) * msPerItem).toLong()
+                    val raw = ((total - current) * msPerItem).toLong()
+                    // EMA α=0.15: 이전 값이 85% 반영 → 급격한 변화 완화
+                    smoothedEta = if (smoothedEta == 0L) raw else (0.85 * smoothedEta + 0.15 * raw).toLong()
+                    // 2초마다만 새 ETA 반환 (throttle)
+                    return if (now - lastEtaEmitMs >= 2_000L) {
+                        lastEtaEmitMs = now
+                        smoothedEta
+                    } else {
+                        -1L  // sentinel: 이전 값 유지
+                    }
                 }
 
                 _state.value = UiState.Scanning(current = 0, total = photos.size, startedAtMs = startedAtMs)
                 var scanTotal = photos.size
                 val photoGroups = groupPhotos.execute(photos) { current, total, label ->
                     scanTotal = total
+                    val eta = computeEta(current, total)
                     _state.value = UiState.Scanning(
                         current = current,
                         total = total,
                         label = label,
                         startedAtMs = startedAtMs,
-                        etaMs = computeEta(current, total),
+                        etaMs = if (eta >= 0) eta else (_state.value as? UiState.Scanning)?.etaMs ?: 0L,
                     )
                 }
                 val videoGroups = groupVideos.execute(videos)

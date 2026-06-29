@@ -460,8 +460,16 @@ private fun ScanningIndicator(s: UiState.Scanning) {
     val etaText = if (s.etaMs > 0 && s.current > 0 && s.current < s.total) {
         when {
             s.etaMs < 5_000 -> stringResource(R.string.scanning_eta_almost)
-            s.etaMs < 60_000 -> stringResource(R.string.scanning_eta_seconds, s.etaMs / 1000)
-            else -> stringResource(R.string.scanning_eta_minutes, s.etaMs / 60_000)
+            s.etaMs < 60_000 -> {
+                // 10초 단위로 반올림: 47초 → 50초, 43초 → 40초
+                val rounded = ((s.etaMs / 1000 + 5) / 10) * 10
+                stringResource(R.string.scanning_eta_seconds, rounded.coerceAtLeast(10))
+            }
+            else -> {
+                // 분 단위: 0.5분 올림 (1분 29초 → 1분, 1분 31초 → 2분)
+                val minutes = ((s.etaMs + 30_000) / 60_000).coerceAtLeast(1)
+                stringResource(R.string.scanning_eta_minutes, minutes)
+            }
         }
     } else null
 
