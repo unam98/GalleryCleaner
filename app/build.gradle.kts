@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.unam.photocleaner"
+    namespace = "com.unam.gallerycleaner"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.unam.photocleaner"
+        applicationId = "com.unam.gallerycleaner"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
@@ -21,7 +21,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -34,6 +35,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         jniLibs {
@@ -43,44 +45,41 @@ android {
 }
 
 dependencies {
+    implementation(project(":feature"))
+    implementation(project(":data"))
+    implementation(project(":domain"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
-    implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3)
-    implementation(libs.androidx.material.icons.extended)
-    debugImplementation(libs.androidx.ui.tooling)
+
+    // Image (Coil — GalleryCleanerApp에서 초기화)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.video)
+
+    // Hilt
+    // Room (for AppModule.kt database builder)
+    implementation(libs.room.runtime)
+    ksp(libs.room.compiler)
 
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    implementation(libs.hilt.navigation.compose)
-
-    // Room
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
 
     // WorkManager + Hilt
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
     ksp(libs.hilt.work.compiler)
 
-    // Image
-    implementation(libs.coil.compose)
-    implementation(libs.coil.video)
+    // Unit Tests
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.coroutines.test)
 
-    // LiteRT (구 TFLite) — 16KB page size 지원
-    implementation(libs.litert)
-
-    // Permissions
-    implementation(libs.accompanist.permissions)
-
-    // ML Kit
-    implementation(libs.mlkit.image.labeling)
+    // Android Instrumentation Tests
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

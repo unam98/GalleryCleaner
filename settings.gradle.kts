@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "PhotoCleaner"
-include(":app")
+rootProject.name = "GalleryCleaner"
+include(":app", ":domain", ":data", ":feature")
