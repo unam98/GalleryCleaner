@@ -216,6 +216,8 @@ internal fun PhotoFullScreenViewer(
         offset = if (scale > 1f) offset + panChange else Offset.Zero
     }
 
+    BackHandler { onDismiss() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
