@@ -80,6 +80,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val filteredGroups by viewModel.filteredGroups.collectAsStateWithLifecycle()
     val selectedCategories by viewModel.selectedCategories.collectAsStateWithLifecycle()
     val availableCategories by viewModel.availableCategories.collectAsStateWithLifecycle()
+    val sortOrder by viewModel.sortOrder.collectAsStateWithLifecycle()
     val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val isRefreshingFavorites by viewModel.isRefreshingFavorites.collectAsStateWithLifecycle()
     val periodicNotification by viewModel.periodicNotification.collectAsStateWithLifecycle()
@@ -201,6 +202,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     filteredGroups = filteredGroups,
                     selectedCategories = selectedCategories,
                     availableCategories = availableCategories,
+                    sortOrder = sortOrder,
                     favoriteIds = favoriteIds,
                     permissionGranted = permission.status.isGranted,
                     onScan = {
@@ -213,6 +215,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     },
                     onCategoryToggle = { viewModel.toggleCategory(it) },
                     onClearCategories = { viewModel.clearCategories() },
+                    onSortOrderChange = { viewModel.setSortOrder(it) },
                     onGroupClick = { viewModel.selectGroup(it) },
                     onQuickDelete = { group ->
                         val toDelete = group.photos.filter { it.id != group.bestPhotoId }
@@ -293,11 +296,13 @@ private fun ScanTabContent(
     filteredGroups: List<com.namilab.gallerycleaner.domain.model.PhotoGroup>,
     selectedCategories: Set<String>,
     availableCategories: Set<String>,
+    sortOrder: com.namilab.gallerycleaner.presentation.GroupSortOrder,
     favoriteIds: Set<Long>,
     permissionGranted: Boolean,
     onScan: () -> Unit,
     onCategoryToggle: (String) -> Unit,
     onClearCategories: () -> Unit,
+    onSortOrderChange: (com.namilab.gallerycleaner.presentation.GroupSortOrder) -> Unit,
     onGroupClick: (com.namilab.gallerycleaner.domain.model.PhotoGroup) -> Unit,
     onQuickDelete: (com.namilab.gallerycleaner.domain.model.PhotoGroup) -> Unit,
     onRetry: () -> Unit,
@@ -311,8 +316,10 @@ private fun ScanTabContent(
             totalGroupCount = s.groups.size,
             selectedCategories = selectedCategories,
             availableCategories = availableCategories,
+            sortOrder = sortOrder,
             onCategoryToggle = onCategoryToggle,
             onClearCategories = onClearCategories,
+            onSortOrderChange = onSortOrderChange,
             onGroupClick = onGroupClick,
             onQuickDelete = onQuickDelete,
         )

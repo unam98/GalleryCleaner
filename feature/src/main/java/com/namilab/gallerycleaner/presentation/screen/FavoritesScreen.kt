@@ -85,6 +85,7 @@ fun FavoritesScreen(
                     FavoriteCell(
                         photo = photo,
                         onClick = { fullScreenIndex = index },
+                        onUnfavorite = { onToggleFavorite(photo.id) },
                     )
                 }
             }
@@ -106,7 +107,7 @@ fun FavoritesScreen(
 }
 
 @Composable
-private fun FavoriteCell(photo: Photo, onClick: () -> Unit) {
+private fun FavoriteCell(photo: Photo, onClick: () -> Unit, onUnfavorite: () -> Unit) {
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -135,14 +136,16 @@ private fun FavoriteCell(photo: Photo, onClick: () -> Unit) {
                 )
             }
         }
+        // 별 아이콘 탭으로 즐겨찾기 즉시 해제
         Icon(
             Icons.Filled.Star,
             contentDescription = null,
             tint = iOSOrange,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(4.dp)
-                .size(14.dp),
+                .clickable(onClick = onUnfavorite)
+                .padding(6.dp)
+                .size(16.dp),
         )
     }
 }

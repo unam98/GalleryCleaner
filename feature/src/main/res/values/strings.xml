@@ -87,6 +87,11 @@
     <string name="favorites_empty">즐겨찾기한 사진이 없어요</string>
     <string name="favorites_no_scan">스캔 후 즐겨찾기한 사진이\n여기에 표시됩니다</string>
 
+    <!-- GroupListScreen 정렬 -->
+    <string name="sort_saving">용량</string>
+    <string name="sort_count">개수</string>
+    <string name="sort_date">날짜</string>
+
     <!-- BattlePick (사진 대결) -->
     <string name="tournament_start">사진 대결</string>
     <string name="tournament_title">사진 대결</string>

@@ -24,10 +24,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
-
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -56,6 +57,7 @@ import com.namilab.gallerycleaner.feature.R
 import com.namilab.gallerycleaner.domain.model.GroupType
 import com.namilab.gallerycleaner.domain.model.Photo
 import com.namilab.gallerycleaner.domain.model.PhotoGroup
+import com.namilab.gallerycleaner.presentation.GroupSortOrder
 import com.namilab.gallerycleaner.presentation.MainViewModel
 
 @Composable
@@ -65,8 +67,10 @@ fun GroupListScreen(
     totalGroupCount: Int,
     selectedCategories: Set<String>,
     availableCategories: Set<String>,
+    sortOrder: GroupSortOrder,
     onCategoryToggle: (String) -> Unit,
     onClearCategories: () -> Unit,
+    onSortOrderChange: (GroupSortOrder) -> Unit,
     onGroupClick: (PhotoGroup) -> Unit,
     onQuickDelete: (PhotoGroup) -> Unit,
 ) {
@@ -88,6 +92,12 @@ fun GroupListScreen(
                     availableCategories = availableCategories,
                     onCategoryToggle = onCategoryToggle,
                     onClearCategories = onClearCategories,
+                )
+            }
+            item {
+                SortOrderRow(
+                    sortOrder = sortOrder,
+                    onSortOrderChange = onSortOrderChange,
                 )
             }
 
@@ -147,12 +157,61 @@ fun GroupListScreen(
             }
         }
 
-        // Vertical scrollbar indicator
         VerticalScrollbar(
             state = listState,
             thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
             modifier = Modifier.align(Alignment.CenterEnd),
         )
+    }
+}
+
+@Composable
+private fun SortOrderRow(
+    sortOrder: GroupSortOrder,
+    onSortOrderChange: (GroupSortOrder) -> Unit,
+) {
+    data class SortChip(val labelRes: Int, val ascending: GroupSortOrder, val descending: GroupSortOrder)
+
+    val chips = listOf(
+        SortChip(R.string.sort_saving, GroupSortOrder.SAVING_ASC, GroupSortOrder.SAVING_DESC),
+        SortChip(R.string.sort_count,  GroupSortOrder.COUNT_ASC,  GroupSortOrder.COUNT_DESC),
+        SortChip(R.string.sort_date,   GroupSortOrder.DATE_OLD,   GroupSortOrder.DATE_NEW),
+    )
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        items(chips) { chip ->
+            val isAscSelected  = sortOrder == chip.ascending
+            val isDescSelected = sortOrder == chip.descending
+            val isSelected     = isAscSelected || isDescSelected
+            FilterChip(
+                selected = isSelected,
+                onClick = {
+                    onSortOrderChange(
+                        if (isDescSelected) chip.ascending else chip.descending
+                    )
+                },
+                label = { Text(stringResource(chip.labelRes), style = MaterialTheme.typography.labelLarge) },
+                trailingIcon = if (isSelected) {
+                    {
+                        Icon(
+                            imageVector = if (isAscSelected) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                } else null,
+                shape = RoundedCornerShape(8.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = Color.White,
+                    selectedTrailingIconColor = Color.White,
+                ),
+            )
+        }
     }
 }
 
@@ -297,8 +356,6 @@ private val THUMB_SIZE = 56.dp
 
 @Composable
 private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete: () -> Unit) {
-    val isVideo = group.type == GroupType.VIDEO_DUPLICATE || group.type == GroupType.SHORT_VIDEO
-
     val sorted = remember(group.id, group.bestPhotoId) {
         val best = group.photos.find { it.id == group.bestPhotoId }
         val rest = group.photos.filter { it.id != group.bestPhotoId }

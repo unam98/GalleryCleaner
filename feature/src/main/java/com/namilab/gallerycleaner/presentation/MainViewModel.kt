@@ -88,6 +88,13 @@ class MainViewModel @Inject constructor(
     )
     val selectedCategories: StateFlow<Set<String>> = _selectedCategories.asStateFlow()
 
+    private val _sortOrder = MutableStateFlow(
+        savedStateHandle.get<String>(KEY_SORT_ORDER)
+            ?.let { runCatching { GroupSortOrder.valueOf(it) }.getOrNull() }
+            ?: GroupSortOrder.SAVING_DESC
+    )
+    val sortOrder: StateFlow<GroupSortOrder> = _sortOrder.asStateFlow()
+
     val favoriteIds: StateFlow<Set<Long>> = favoriteDao.observeAll()
         .map { it.toHashSet() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
@@ -118,13 +125,12 @@ class MainViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    // 선택된 카테고리들의 AND 필터
+    // 카테고리 필터 + 정렬 적용
     val filteredGroups: StateFlow<List<PhotoGroup>> = combine(
-        _state, _photoLabels, _selectedCategories,
-    ) { state, labels, categories ->
+        _state, _photoLabels, _selectedCategories, _sortOrder,
+    ) { state, labels, categories, sortOrder ->
         val groups = (state as? UiState.Done)?.groups ?: return@combine emptyList()
-        if (categories.isEmpty()) return@combine groups
-        groups.filter { group ->
+        val filtered = if (categories.isEmpty()) groups else groups.filter { group ->
             categories.all { category ->
                 group.photos.any { photo ->
                     val photoLabels = labels[photo.id] ?: emptyList()
@@ -134,6 +140,7 @@ class MainViewModel @Inject constructor(
                 }
             }
         }
+        sortOrder.apply(filtered)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _tournamentState = MutableStateFlow<TournamentState?>(null)
@@ -177,6 +184,11 @@ class MainViewModel @Inject constructor(
     fun clearCategories() {
         _selectedCategories.value = emptySet()
         savedStateHandle.remove<String>(KEY_CATEGORIES)
+    }
+
+    fun setSortOrder(order: GroupSortOrder) {
+        _sortOrder.value = order
+        savedStateHandle[KEY_SORT_ORDER] = order.name
     }
 
     fun scan(overrideSinceMs: Long? = null) {
@@ -448,6 +460,7 @@ class MainViewModel @Inject constructor(
         private const val KEY_STATE = "ui_state"
         private const val KEY_FILTER = "scan_filter"
         private const val KEY_CATEGORIES = "categories"
+        private const val KEY_SORT_ORDER = "sort_order"
         private const val KEY_SELECTED_GROUP_ID = "selected_group_id"
         private const val ETA_WINDOW = 30
 
