@@ -28,7 +28,7 @@ class EmbeddingExtractor @Inject constructor(
                 afd.startOffset,
                 afd.declaredLength,
             )
-            val interp = Interpreter(buffer, Interpreter.Options().apply { numThreads = 4 })
+            val interp = Interpreter(buffer, Interpreter.Options().apply { numThreads = 2 })
             outputDim = interp.getOutputTensor(0).shape()[1]
             interpreter = interp
             true
@@ -41,17 +41,17 @@ class EmbeddingExtractor @Inject constructor(
         val interp = interpreter ?: return null
         val resized = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
 
+        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+        resized.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+
         val inputBuffer = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3 * 4).apply {
             order(ByteOrder.nativeOrder())
         }
-        for (y in 0 until INPUT_SIZE) {
-            for (x in 0 until INPUT_SIZE) {
-                val pixel = resized.getPixel(x, y)
-                // MobileNetV3: normalize [0,255] → [-1,1]
-                inputBuffer.putFloat(((pixel shr 16) and 0xFF) / 127.5f - 1f)
-                inputBuffer.putFloat(((pixel shr 8) and 0xFF) / 127.5f - 1f)
-                inputBuffer.putFloat((pixel and 0xFF) / 127.5f - 1f)
-            }
+        // getPixels() is a single JNI call vs 50K individual getPixel() calls
+        for (pixel in pixels) {
+            inputBuffer.putFloat(((pixel shr 16) and 0xFF) / 127.5f - 1f)
+            inputBuffer.putFloat(((pixel shr 8) and 0xFF) / 127.5f - 1f)
+            inputBuffer.putFloat((pixel and 0xFF) / 127.5f - 1f)
         }
         resized.recycle()
 

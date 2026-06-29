@@ -1,32 +1,12 @@
 package com.unam.gallerycleaner.util
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Paint
 
 object ImageQualityUtils {
 
     // 라플라시안 분산 — 값이 클수록 선명
+    // grayscale Bitmap 복사 없이 inline luma로 직접 계산 (Bitmap 할당 제거)
     fun sharpness(bitmap: Bitmap): Double {
-        val gray = toGrayscale(bitmap)
-        val result = laplacianVariance(gray)
-        gray.recycle()
-        return result
-    }
-
-    private fun toGrayscale(src: Bitmap): Bitmap {
-        val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
-        val paint = Paint().apply {
-            colorFilter = ColorMatrixColorFilter(ColorMatrix().also { it.setSaturation(0f) })
-        }
-        canvas.drawBitmap(src, 0f, 0f, paint)
-        return result
-    }
-
-    private fun laplacianVariance(bitmap: Bitmap): Double {
         val w = bitmap.width
         val h = bitmap.height
         val pixels = IntArray(w * h)
@@ -38,11 +18,11 @@ object ImageQualityUtils {
 
         for (y in 1 until h - 1) {
             for (x in 1 until w - 1) {
-                val center = (pixels[y * w + x] and 0xFF) * 4
-                val top = pixels[(y - 1) * w + x] and 0xFF
-                val bottom = pixels[(y + 1) * w + x] and 0xFF
-                val left = pixels[y * w + (x - 1)] and 0xFF
-                val right = pixels[y * w + (x + 1)] and 0xFF
+                val center = luma(pixels[y * w + x]) * 4
+                val top = luma(pixels[(y - 1) * w + x])
+                val bottom = luma(pixels[(y + 1) * w + x])
+                val left = luma(pixels[y * w + (x - 1)])
+                val right = luma(pixels[y * w + (x + 1)])
                 val lap = (center - top - bottom - left - right).toDouble()
                 sum += lap
                 sumSq += lap * lap
@@ -53,4 +33,8 @@ object ImageQualityUtils {
         val mean = sum / count
         return (sumSq / count) - mean * mean
     }
+
+    // BT.601 정수 근사: (77R + 150G + 29B) >> 8 — 부동소수점 없이 luma 계산
+    private fun luma(px: Int): Int =
+        ((px shr 16 and 0xFF) * 77 + (px shr 8 and 0xFF) * 150 + (px and 0xFF) * 29) shr 8
 }

@@ -7,7 +7,9 @@ import com.unam.gallerycleaner.data.local.db.PhotoHashEntity
 import com.unam.gallerycleaner.domain.model.GroupType
 import com.unam.gallerycleaner.util.EmbeddingExtractor
 import io.mockk.coEvery
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.runs
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -21,15 +23,20 @@ class GroupBurstLogicTest {
     private val embeddingExtractor = mockk<EmbeddingExtractor>()
     private lateinit var useCase: GroupPhotosUseCase
 
+    // computeHashes()는 이제 getAll() 단일 쿼리 + insertAll() 배치 insert 사용
+    private val hashEntities = mutableListOf<PhotoHashEntity>()
+
     @Before
     fun setUp() {
+        hashEntities.clear()
         useCase = GroupPhotosUseCase(context, photoHashDao, embeddingExtractor)
-        // Skip Phase 2 (embedding similarity) in all tests
         coEvery { embeddingExtractor.initialize() } returns false
+        coEvery { photoHashDao.getAll() } answers { hashEntities.toList() }
+        coEvery { photoHashDao.insertAll(any()) } just runs
     }
 
     private fun stubHash(photoId: Long, dHash: Long = 0L, sharpness: Double = 100.0) {
-        coEvery { photoHashDao.get(photoId) } returns PhotoHashEntity(photoId, dHash, sharpness)
+        hashEntities.add(PhotoHashEntity(photoId, dHash, sharpness))
     }
 
     @Test
@@ -85,8 +92,8 @@ class GroupBurstLogicTest {
             PhotoFactory.photo(1L, dateTaken = t0, size = 500_000L),
             PhotoFactory.photo(2L, dateTaken = t0 + 1_000, size = 600_000L),
         )
-        coEvery { photoHashDao.get(1L) } returns PhotoHashEntity(1L, 0L, 80.0)
-        coEvery { photoHashDao.get(2L) } returns PhotoHashEntity(2L, 0L, 120.0)
+        stubHash(1L, dHash = 0L, sharpness = 80.0)
+        stubHash(2L, dHash = 0L, sharpness = 120.0)
 
         val groups = useCase.execute(photos)
 
@@ -101,8 +108,7 @@ class GroupBurstLogicTest {
             PhotoFactory.photo(1L, dateTaken = t0),
             PhotoFactory.photo(2L, dateTaken = t0 + 500),
         )
-        // No cache → decodeAndHash called → context (relaxed mock) returns null for openFileDescriptor
-        coEvery { photoHashDao.get(any()) } returns null
+        // getAll() returns empty → all photos hit decodeAndHash → context (relaxed mock) returns null
 
         val groups = useCase.execute(photos)
 
