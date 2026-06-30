@@ -6,8 +6,12 @@ import com.namilab.gallerycleaner.data.local.db.AppDatabase
 import com.namilab.gallerycleaner.data.local.db.FavoritePhotoDao
 import com.namilab.gallerycleaner.data.local.db.PhotoHashDao
 import com.namilab.gallerycleaner.data.local.db.PhotoLabelDao
+import com.namilab.gallerycleaner.ads.AdGateImpl
+import com.namilab.gallerycleaner.domain.AdGate
+import com.namilab.gallerycleaner.domain.GroupResultsCache
 import com.namilab.gallerycleaner.domain.ScanNotifier
 import com.namilab.gallerycleaner.notification.NotificationHelper
+import com.namilab.gallerycleaner.presentation.ScanResultsCache
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -47,4 +51,12 @@ abstract class NotificationModule {
     @Binds
     @Singleton
     abstract fun bindScanNotifier(impl: NotificationHelper): ScanNotifier
+
+    @Binds
+    @Singleton
+    abstract fun bindGroupResultsCache(impl: ScanResultsCache): GroupResultsCache
+
+    @Binds
+    @Singleton
+    abstract fun bindAdGate(impl: AdGateImpl): AdGate
 }

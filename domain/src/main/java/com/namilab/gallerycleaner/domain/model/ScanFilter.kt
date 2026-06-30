@@ -2,35 +2,35 @@ package com.namilab.gallerycleaner.domain.model
 
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
-import java.util.concurrent.TimeUnit
 
 @Parcelize
 data class ScanFilter(
     val period: ScanPeriod = ScanPeriod.ALL,
     val minSizeBytes: Long = 0L,
-    val maxPhotoCount: Int? = null,
+    val maxVideoDurationMs: Long = Long.MAX_VALUE,
     val customSinceMs: Long? = null,
     val mediaType: MediaType = MediaType.ALL,
 ) : Parcelable {
-    fun sinceTimestampMs(): Long? = customSinceMs ?: period.days?.let {
-        System.currentTimeMillis() - TimeUnit.DAYS.toMillis(it.toLong())
-    }
+    fun sinceTimestampMs(): Long? = customSinceMs ?: period.sinceMs()
+    fun untilTimestampMs(): Long? = period.untilMs()
 }
 
-enum class ScanPeriod(val label: String, val days: Int?) {
-    WEEK("최근 1주", 7),
-    MONTH("최근 1개월", 30),
-    THREE_MONTHS("최근 3개월", 90),
-    SIX_MONTHS("최근 6개월", 180),
-    ALL("전체", null),
-}
+private val DAY_MS = 86_400_000L
 
-enum class MaxPhotoCount(val label: String, val count: Int?) {
-    LATEST_100("최근 100장", 100),
-    LATEST_300("최근 300장", 300),
-    LATEST_500("최근 500장", 500),
-    LATEST_1000("최근 1000장", 1000),
-    ALL("전체", null),
+enum class ScanPeriod(val label: String, val recentDays: Int?, val olderThanDays: Int?) {
+    WEEK("최근 1주", 7, null),
+    MONTH("최근 1개월", 30, null),
+    THREE_MONTHS("최근 3개월", 90, null),
+    SIX_MONTHS("최근 6개월", 180, null),
+    ONE_YEAR("최근 1년", 365, null),
+    TWO_YEARS("최근 2년", 730, null),
+    THREE_YEARS_PLUS("3년 이상 된", null, 3 * 365),
+    FIVE_YEARS_PLUS("5년 이상 된", null, 5 * 365),
+    ALL("전체 기간", null, null),
+    ;
+
+    fun sinceMs(): Long? = recentDays?.let { System.currentTimeMillis() - it * DAY_MS }
+    fun untilMs(): Long? = olderThanDays?.let { System.currentTimeMillis() - it * DAY_MS }
 }
 
 enum class MediaType(val label: String) {
@@ -43,4 +43,12 @@ enum class MinSize(val label: String, val bytes: Long) {
     MB1("1MB 이상", 1 * 1024 * 1024L),
     MB3("3MB 이상", 3 * 1024 * 1024L),
     MB5("5MB 이상", 5 * 1024 * 1024L),
+}
+
+enum class MaxVideoDuration(val label: String, val ms: Long) {
+    ALL("전체", Long.MAX_VALUE),
+    ONE_SEC("1초 이하", 1_000L),
+    FIVE_SEC("5초 이하", 5_000L),
+    THIRTY_SEC("30초 이하", 30_000L),
+    ONE_MIN("1분 이하", 60_000L),
 }

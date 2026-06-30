@@ -20,8 +20,8 @@ class MediaStoreDataSource @Inject constructor(
 ) {
     suspend fun getAllPhotos(
         sinceMs: Long? = null,
+        untilMs: Long? = null,
         minSizeBytes: Long = 0L,
-        maxCount: Int? = null,
     ): List<Photo> = withContext(Dispatchers.IO) {
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -40,6 +40,7 @@ class MediaStoreDataSource @Inject constructor(
             dateCol = MediaStore.Images.Media.DATE_TAKEN,
             sizeCol = MediaStore.Images.Media.SIZE,
             sinceMs = sinceMs,
+            untilMs = untilMs,
             minSizeBytes = minSizeBytes,
         )
         val photos = mutableListOf<Photo>()
@@ -68,13 +69,14 @@ class MediaStoreDataSource @Inject constructor(
                 ))
             }
         }
-        if (maxCount != null) photos.takeLast(maxCount) else photos
+        photos
     }
 
     suspend fun getAllVideos(
         sinceMs: Long? = null,
+        untilMs: Long? = null,
         minSizeBytes: Long = 0L,
-        maxCount: Int? = null,
+        maxDurationMs: Long = Long.MAX_VALUE,
     ): List<Photo> = withContext(Dispatchers.IO) {
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -94,7 +96,10 @@ class MediaStoreDataSource @Inject constructor(
             dateCol = MediaStore.Video.Media.DATE_TAKEN,
             sizeCol = MediaStore.Video.Media.SIZE,
             sinceMs = sinceMs,
+            untilMs = untilMs,
             minSizeBytes = minSizeBytes,
+            durationCol = MediaStore.Video.Media.DURATION,
+            maxDurationMs = maxDurationMs,
         )
         val videos = mutableListOf<Photo>()
         context.contentResolver.query(
@@ -124,10 +129,56 @@ class MediaStoreDataSource @Inject constructor(
                 ))
             }
         }
-        if (maxCount != null) videos.takeLast(maxCount) else videos
+        videos
     }
 
     suspend fun getPhotosSince(timestampMs: Long): List<Photo> = getAllPhotos(sinceMs = timestampMs)
+
+    suspend fun getPhotosByIds(ids: List<Long>): List<Photo> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val placeholders = ids.joinToString(",") { "?" }
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.WIDTH,
+            MediaStore.Images.Media.HEIGHT,
+            MediaStore.Images.Media.MIME_TYPE,
+        )
+        val photos = mutableListOf<Photo>()
+        context.contentResolver.query(
+            collection, projection,
+            "${MediaStore.Images.Media._ID} IN ($placeholders)",
+            ids.map { it.toString() }.toTypedArray(),
+            null,
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+            val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+            val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idCol)
+                photos.add(Photo(
+                    id = id,
+                    uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id),
+                    displayName = cursor.getString(nameCol) ?: "",
+                    dateTaken = cursor.getLong(dateCol),
+                    size = cursor.getLong(sizeCol),
+                    width = cursor.getInt(widthCol),
+                    height = cursor.getInt(heightCol),
+                    mimeType = cursor.getString(mimeCol) ?: "image/jpeg",
+                ))
+            }
+        }
+        photos
+    }
 
     @RequiresApi(Build.VERSION_CODES.Q)
     suspend fun createDeleteRequest(uris: List<Uri>): IntentSender = withContext(Dispatchers.IO) {
@@ -142,12 +193,19 @@ class MediaStoreDataSource @Inject constructor(
         dateCol: String,
         sizeCol: String,
         sinceMs: Long?,
+        untilMs: Long? = null,
         minSizeBytes: Long,
+        durationCol: String? = null,
+        maxDurationMs: Long = Long.MAX_VALUE,
     ): Pair<String?, Array<String>?> {
         val conditions = mutableListOf<String>()
         val args = mutableListOf<String>()
         sinceMs?.let { conditions += "$dateCol >= ?"; args += it.toString() }
+        untilMs?.let { conditions += "$dateCol < ?"; args += it.toString() }
         if (minSizeBytes > 0) { conditions += "$sizeCol >= ?"; args += minSizeBytes.toString() }
+        if (durationCol != null && maxDurationMs < Long.MAX_VALUE) {
+            conditions += "$durationCol <= ?"; args += maxDurationMs.toString()
+        }
         return if (conditions.isEmpty()) null to null
         else conditions.joinToString(" AND ") to args.toTypedArray()
     }

@@ -25,25 +25,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -97,7 +93,6 @@ fun TournamentScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TournamentMatchScreen(
     state: TournamentState,
@@ -106,7 +101,6 @@ private fun TournamentMatchScreen(
 ) {
     val left = state.left ?: return
     val right = state.right
-    var isVertical by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -145,68 +139,21 @@ private fun TournamentMatchScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // 가로/세로 배치 토글 — 직관적인 SegmentedButton
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(horizontal = 24.dp)) {
-            SegmentedButton(
-                selected = !isVertical,
-                onClick = { isVertical = false },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color.White.copy(alpha = 0.15f),
-                    activeContentColor = Color.White,
-                    inactiveContentColor = Color.White.copy(alpha = 0.5f),
-                ),
-                label = { Text(stringResource(R.string.tournament_layout_horizontal), style = MaterialTheme.typography.labelMedium) },
-            )
-            SegmentedButton(
-                selected = isVertical,
-                onClick = { isVertical = true },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color.White.copy(alpha = 0.15f),
-                    activeContentColor = Color.White,
-                    inactiveContentColor = Color.White.copy(alpha = 0.5f),
-                ),
-                label = { Text(stringResource(R.string.tournament_layout_vertical), style = MaterialTheme.typography.labelMedium) },
-            )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        // 대결 카드
-        if (isVertical) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 8.dp),
-            ) {
-                PhotoCard(photo = left, onClick = { onPick(left) }, modifier = Modifier.fillMaxWidth().weight(1f))
-                Box(modifier = Modifier.fillMaxWidth().height(26.dp), contentAlignment = Alignment.Center) {
-                    Text("VS", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.6f), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                }
-                if (right != null) {
-                    PhotoCard(photo = right, onClick = { onPick(right) }, modifier = Modifier.fillMaxWidth().weight(1f))
-                } else {
-                    AutoAdvanceSlot(modifier = Modifier.fillMaxWidth().weight(1f))
-                }
+        // 대결 카드 — 세로 배치 고정
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+        ) {
+            PhotoCard(photo = left, onClick = { onPick(left) }, modifier = Modifier.fillMaxWidth().weight(1f))
+            Box(modifier = Modifier.fillMaxWidth().height(26.dp), contentAlignment = Alignment.Center) {
+                Text("VS", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.6f), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
             }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 4.dp),
-            ) {
-                PhotoCard(photo = left, onClick = { onPick(left) }, modifier = Modifier.weight(1f))
-                Box(modifier = Modifier.width(24.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    Text("VS", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.6f), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                }
-                if (right != null) {
-                    PhotoCard(photo = right, onClick = { onPick(right) }, modifier = Modifier.weight(1f))
-                } else {
-                    AutoAdvanceSlot(modifier = Modifier.weight(1f).fillMaxHeight())
-                }
+            if (right != null) {
+                PhotoCard(photo = right, onClick = { onPick(right) }, modifier = Modifier.fillMaxWidth().weight(1f))
+            } else {
+                AutoAdvanceSlot(modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
@@ -239,11 +186,14 @@ private fun PhotoCard(
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
+    var boxWidth by remember { mutableStateOf(0) }
+    var boxHeight by remember { mutableStateOf(0) }
 
     Box(
         modifier = modifier
             .fillMaxHeight()
             .clip(RoundedCornerShape(12.dp))
+            .onSizeChanged { boxWidth = it.width; boxHeight = it.height }
             // clickable 유지 → ripple 피드백 + 탭 선택 처리
             .clickable {
                 if (scale > 1f) { scale = 1f; offsetX = 0f; offsetY = 0f }
@@ -255,8 +205,12 @@ private fun PhotoCard(
                     val newScale = (scale * zoom).coerceIn(1f, 5f)
                     scale = newScale
                     if (newScale > 1f) {
-                        offsetX += pan.x
-                        offsetY += pan.y
+                        // 이미지가 박스 경계를 벗어나지 않도록 클램핑
+                        // 확대 시 여분 영역: (scale - 1) * size / 2
+                        val maxX = boxWidth * (newScale - 1f) / 2f
+                        val maxY = boxHeight * (newScale - 1f) / 2f
+                        offsetX = (offsetX + pan.x).coerceIn(-maxX, maxX)
+                        offsetY = (offsetY + pan.y).coerceIn(-maxY, maxY)
                     } else {
                         offsetX = 0f; offsetY = 0f
                     }

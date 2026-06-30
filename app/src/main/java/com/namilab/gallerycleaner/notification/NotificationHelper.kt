@@ -7,6 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -113,12 +116,14 @@ class NotificationHelper @Inject constructor(
         )
     }
 
-    fun showScanDone(groupCount: Int, savingBytes: Long) {
+    fun showScanDone(groupCount: Int, savingBytes: Long, sampleUri: Uri? = null, fromWorker: Boolean = false) {
         if (!hasNotifyPermission()) return
         if (groupCount == 0) return
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra(MainActivity.EXTRA_NAVIGATE_TOP_GROUP, true)
+            if (fromWorker) putExtra(MainActivity.EXTRA_AUTO_SCAN, true)
         }
         val pi = PendingIntent.getActivity(context, NOTIF_SCAN_DONE, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -127,18 +132,36 @@ class NotificationHelper @Inject constructor(
             context.getString(R.string.notif_scan_body_saving, groupCount, formatBytes(savingBytes))
         else context.getString(R.string.notif_scan_body_no_saving, groupCount)
 
-        NotificationManagerCompat.from(context).notify(
-            NOTIF_SCAN_DONE,
-            NotificationCompat.Builder(context, CHANNEL_SCAN)
-                .setSmallIcon(android.R.drawable.ic_menu_gallery)
-                .setContentTitle(context.getString(R.string.notif_scan_done_title))
-                .setContentText(body)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-                .build(),
-        )
+        val thumbnail = sampleUri?.let { loadNotificationThumbnail(it) }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_SCAN)
+            .setSmallIcon(android.R.drawable.ic_menu_gallery)
+            .setContentTitle(context.getString(R.string.notif_scan_done_title))
+            .setContentText(body)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+
+        if (thumbnail != null) {
+            builder
+                .setLargeIcon(thumbnail)
+                .setStyle(
+                    NotificationCompat.BigPictureStyle()
+                        .bigPicture(thumbnail)
+                        .setSummaryText(body),
+                )
+        } else {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
+
+        NotificationManagerCompat.from(context).notify(NOTIF_SCAN_DONE, builder.build())
     }
+
+    private fun loadNotificationThumbnail(uri: Uri): Bitmap? = try {
+        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, opts)
+        }
+    } catch (_: Exception) { null }
 
     fun showScreenshotMarkedConfirm(displayName: String) {
         if (!hasNotifyPermission()) return
@@ -154,8 +177,8 @@ class NotificationHelper @Inject constructor(
         )
     }
 
-    override fun notifyScanDone(groupCount: Int, savingBytes: Long) {
-        showScanDone(groupCount, savingBytes)
+    override fun notifyScanDone(groupCount: Int, savingBytes: Long, sampleUri: Uri?, fromWorker: Boolean) {
+        showScanDone(groupCount, savingBytes, sampleUri, fromWorker)
     }
 
     override fun notifyScreenshotFavorite(photoId: Long, displayName: String) {

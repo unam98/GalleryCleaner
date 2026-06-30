@@ -1,6 +1,9 @@
 package com.namilab.gallerycleaner.presentation.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,11 +11,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
@@ -21,6 +32,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -34,16 +46,23 @@ fun SettingsContent(
     screenshotNotification: Boolean,
     onPeriodicNotificationChange: (Boolean) -> Unit,
     onScreenshotNotificationChange: (Boolean) -> Unit,
+    isPremium: Boolean = false,
+    onPurchasePremium: () -> Unit = {},
     onDebugTriggerPeriodicScan: () -> Unit = {},
     onDebugTriggerScreenshotNotif: () -> Unit = {},
     onDebugTriggerScanDoneNotif: () -> Unit = {},
+    onDebugTogglePremium: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
+        PremiumCard(isPremium = isPremium, onPurchase = onPurchasePremium)
+
+        Spacer(Modifier.height(24.dp))
         Text(stringResource(R.string.notification_settings_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
@@ -64,19 +83,122 @@ fun SettingsContent(
         if (BuildConfig.DEBUG) {
             Spacer(Modifier.height(24.dp))
             DebugSection(
+                isPremium = isPremium,
                 onTriggerPeriodicScan = onDebugTriggerPeriodicScan,
                 onTriggerScreenshotNotif = onDebugTriggerScreenshotNotif,
                 onTriggerScanDoneNotif = onDebugTriggerScanDoneNotif,
+                onTogglePremium = onDebugTogglePremium,
             )
         }
     }
 }
 
 @Composable
+private fun PremiumCard(isPremium: Boolean, onPurchase: () -> Unit) {
+    if (isPremium) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Column {
+                    Text(
+                        "프리미엄 이용 중",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        "광고 없이 모든 기능을 무제한으로 사용할 수 있어요.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    )
+                }
+            }
+        }
+    } else {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        ) {
+            Column(
+                modifier = Modifier
+                    .background(
+                        Brush.linearGradient(listOf(Color(0xFF6200EE), Color(0xFF9C27B0))),
+                        RoundedCornerShape(16.dp),
+                    )
+                    .padding(20.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Star,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "프리미엄",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                listOf(
+                    "광고 없이 무제한 스캔·정리",
+                    "전체 기간 스캔 잠금 해제",
+                ).forEach { benefit ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFFB2FF59),
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(benefit, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    }
+                    Spacer(Modifier.height(2.dp))
+                }
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = onPurchase,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF6200EE),
+                    ),
+                ) {
+                    Text("구매하기", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DebugSection(
+    isPremium: Boolean,
     onTriggerPeriodicScan: () -> Unit,
     onTriggerScreenshotNotif: () -> Unit,
     onTriggerScanDoneNotif: () -> Unit,
+    onTogglePremium: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -103,6 +225,11 @@ private fun DebugSection(
         DebugButton("스크린샷 중요 표시 알림 테스트", onTriggerScreenshotNotif)
         Spacer(Modifier.height(8.dp))
         DebugButton("스캔 완료 알림 테스트", onTriggerScanDoneNotif)
+        Spacer(Modifier.height(8.dp))
+        DebugButton(
+            if (isPremium) "프리미엄 해제 (테스트용)" else "프리미엄 활성화 (테스트용)",
+            onTogglePremium,
+        )
     }
 }
 

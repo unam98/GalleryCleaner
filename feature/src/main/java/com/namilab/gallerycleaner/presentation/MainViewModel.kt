@@ -20,7 +20,10 @@ import com.namilab.gallerycleaner.domain.usecase.GroupVideosUseCase
 import com.namilab.gallerycleaner.util.MlKitLabelExtractor
 import com.namilab.gallerycleaner.work.ScanForegroundService
 import com.namilab.gallerycleaner.work.ScreenshotDetectorJob
+import com.namilab.gallerycleaner.domain.AdGate
 import com.namilab.gallerycleaner.domain.ScanNotifier
+import com.namilab.gallerycleaner.domain.model.GroupType
+import com.namilab.gallerycleaner.work.GalleryScanWorker
 import com.namilab.gallerycleaner.work.WorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -54,6 +57,7 @@ class MainViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val scanNotifier: ScanNotifier,
     private val scanResultsCache: ScanResultsCache,
+    private val adGate: AdGate,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState>(
@@ -79,6 +83,9 @@ class MainViewModel @Inject constructor(
 
     private val _events = MutableSharedFlow<MainEvent>()
     val events: SharedFlow<MainEvent> = _events.asSharedFlow()
+
+    private val _isPremium = MutableStateFlow(adGate.isPremium())
+    val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
 
     private val _photoLabels = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
 
@@ -148,6 +155,45 @@ class MainViewModel @Inject constructor(
 
     private var pendingDeleteIds: List<Long> = emptyList()
 
+    /** 알림 탭 → 최상위 그룹으로 즉시 이동
+     *  1순위: in-memory ScanResultsCache (앱 백그라운드 상태)
+     *  2순위: SharedPreferences photo IDs + MediaStore 조회 (프로세스 재시작 후) */
+    fun navigateToTopGroup() {
+        val inMemoryTop = (_state.value as? UiState.Done)?.groups?.firstOrNull()
+        if (inMemoryTop != null) { selectGroup(inMemoryTop); return }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences(GalleryScanWorker.PREFS_NAME, Context.MODE_PRIVATE)
+            val idsStr = prefs.getString(GalleryScanWorker.KEY_PENDING_PHOTO_IDS, null) ?: return@launch
+            val ids = idsStr.split(",").mapNotNull { it.toLongOrNull() }
+            if (ids.size < 2) return@launch
+            val bestId = prefs.getLong(GalleryScanWorker.KEY_PENDING_BEST_ID, -1L)
+            val savingBytes = prefs.getLong(GalleryScanWorker.KEY_PENDING_SAVING, 0L)
+
+            val photos = mediaStore.getPhotosByIds(ids)
+            if (photos.size < 2) return@launch
+
+            val group = PhotoGroup(
+                id = "notification_group",
+                photos = photos.sortedBy { it.dateTaken },
+                bestPhotoId = if (bestId > 0L && photos.any { it.id == bestId }) bestId else photos.first().id,
+                type = GroupType.BURST,
+                potentialSavingBytes = savingBytes,
+            )
+            prefs.edit()
+                .remove(GalleryScanWorker.KEY_PENDING_PHOTO_IDS)
+                .remove(GalleryScanWorker.KEY_PENDING_BEST_ID)
+                .remove(GalleryScanWorker.KEY_PENDING_SAVING)
+                .apply()
+
+            withContext(Dispatchers.Main) {
+                scanResultsCache.save(listOf(group), savingBytes)
+                _state.value = UiState.Done(groups = listOf(group), totalSavingBytes = savingBytes)
+                selectGroup(group)
+            }
+        }
+    }
+
     init {
         // 프로세스 재시작 후 Done 상태 복원 시 캐시 기반 라벨 복원
         (_state.value as? UiState.Done)?.let { done ->
@@ -192,6 +238,23 @@ class MainViewModel @Inject constructor(
     }
 
     fun scan(overrideSinceMs: Long? = null) {
+        if (!adGate.isUnlocked()) {
+            viewModelScope.launch { _events.emit(MainEvent.ShowRewardedAdDialog) }
+            return
+        }
+        startScan(overrideSinceMs)
+    }
+
+    fun onAdRewarded() {
+        adGate.unlock()
+        startScan()
+    }
+
+    fun requestPremiumPrompt() {
+        viewModelScope.launch { _events.emit(MainEvent.ShowPremiumPrompt) }
+    }
+
+    private fun startScan(overrideSinceMs: Long? = null) {
         val f = if (overrideSinceMs != null) ScanFilter(customSinceMs = overrideSinceMs) else _filter.value
         _selectedCategories.value = emptySet()
         _photoLabels.value = emptyMap()
@@ -203,25 +266,28 @@ class MainViewModel @Inject constructor(
             _state.value = UiState.Scanning(startedAtMs = startedAtMs)
             runCatching {
                 val sinceMs = f.sinceTimestampMs()
+                val untilMs = f.untilTimestampMs()
                 val photos = if (f.mediaType != MediaType.VIDEO_ONLY)
-                    mediaStore.getAllPhotos(sinceMs = sinceMs, minSizeBytes = f.minSizeBytes, maxCount = f.maxPhotoCount)
+                    mediaStore.getAllPhotos(sinceMs = sinceMs, untilMs = untilMs, minSizeBytes = f.minSizeBytes)
                 else emptyList()
                 val videos = if (f.mediaType != MediaType.PHOTO_ONLY)
-                    mediaStore.getAllVideos(sinceMs = sinceMs, minSizeBytes = f.minSizeBytes, maxCount = f.maxPhotoCount)
+                    mediaStore.getAllVideos(sinceMs = sinceMs, untilMs = untilMs, minSizeBytes = f.minSizeBytes, maxDurationMs = f.maxVideoDurationMs)
                 else emptyList()
 
                 // 포그라운드 서비스 시작 (백그라운드 진행 보장)
                 ScanForegroundService.start(context, photos.size)
 
                 // ETA: 슬라이딩 윈도우 속도 추정 + EMA 평활화 + 2초 throttle
+                // computeEta는 Dispatchers.IO 병렬 코루틴에서 동시 호출되므로 synchronized 필수
+                val etaLock = Any()
                 val recentTimestamps = ArrayDeque<Long>(ETA_WINDOW)
                 var smoothedEta = 0L
                 var lastEtaEmitMs = 0L
-                fun computeEta(current: Int, total: Int): Long {
+                fun computeEta(current: Int, total: Int): Long = synchronized(etaLock) {
                     val now = System.currentTimeMillis()
                     recentTimestamps.addLast(now)
                     if (recentTimestamps.size > ETA_WINDOW) recentTimestamps.removeFirst()
-                    if (recentTimestamps.size < 2) return smoothedEta
+                    if (recentTimestamps.size < 2) return@synchronized smoothedEta
                     val windowElapsed = now - recentTimestamps.first()
                     val windowItems = (recentTimestamps.size - 1).coerceAtLeast(1)
                     val msPerItem = windowElapsed.toDouble() / windowItems
@@ -229,7 +295,7 @@ class MainViewModel @Inject constructor(
                     // EMA α=0.15: 이전 값이 85% 반영 → 급격한 변화 완화
                     smoothedEta = if (smoothedEta == 0L) raw else (0.85 * smoothedEta + 0.15 * raw).toLong()
                     // 2초마다만 새 ETA 반환 (throttle)
-                    return if (now - lastEtaEmitMs >= 2_000L) {
+                    if (now - lastEtaEmitMs >= 2_000L) {
                         lastEtaEmitMs = now
                         smoothedEta
                     } else {
@@ -249,6 +315,8 @@ class MainViewModel @Inject constructor(
                         startedAtMs = startedAtMs,
                         etaMs = if (eta >= 0) eta else (_state.value as? UiState.Scanning)?.etaMs ?: 0L,
                     )
+                    // ETA throttle(2초)에 맞춰 알림 프로그레스도 갱신
+                    if (eta >= 0) ScanForegroundService.update(context, current, total, eta)
                 }
                 val videoGroups = groupVideos.execute(videos)
                 val groups = (photoGroups + videoGroups).sortedByDescending { it.potentialSavingBytes }
@@ -273,7 +341,13 @@ class MainViewModel @Inject constructor(
                 val totalSaving = groups.sumOf { it.potentialSavingBytes }
                 scanResultsCache.save(groups, totalSaving)
                 _state.value = UiState.Done(groups = groups, totalSavingBytes = totalSaving)
-                scanNotifier.notifyScanDone(groups.size, totalSaving)
+                val topGroup = groups.maxByOrNull { it.potentialSavingBytes }
+                val sampleUri = topGroup?.photos?.find { it.id == topGroup.bestPhotoId }?.uri
+                    ?: groups.firstOrNull()?.photos?.firstOrNull()?.uri
+                // 비트맵 로딩이 IO 작업이므로 IO 디스패처에서 호출
+                withContext(Dispatchers.IO) {
+                    scanNotifier.notifyScanDone(groups.size, totalSaving, sampleUri)
+                }
             }.onFailure { e ->
                 ScanForegroundService.stop(context)
                 _state.value = UiState.Error(e.message ?: "Unknown error")
@@ -447,12 +521,23 @@ class MainViewModel @Inject constructor(
     // ── 디버그 (DEBUG 빌드 전용) ──────────────────────────────────────────────
 
     fun debugTriggerPeriodicScan() {
-        // Reset lastScanned so the worker scans the full library, not just "since last run"
-        context.getSharedPreferences(
-            com.namilab.gallerycleaner.work.GalleryScanWorker.PREFS_NAME,
-            android.content.Context.MODE_PRIVATE,
-        ).edit().remove(com.namilab.gallerycleaner.work.GalleryScanWorker.KEY_LAST_SCANNED).apply()
-        workScheduler.triggerNow()
+        viewModelScope.launch(Dispatchers.IO) {
+            // 최근 사진 3장을 가져와 deep-link SharedPreferences 세팅 + 알림 발송
+            val recentPhotos = mediaStore.getAllPhotos().takeLast(3)
+            val sampleUri = recentPhotos.lastOrNull()?.uri
+            if (recentPhotos.size >= 2) {
+                val bestId = recentPhotos.last().id
+                val savingBytes = recentPhotos.dropLast(1).sumOf { it.size }
+                context.getSharedPreferences(GalleryScanWorker.PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(GalleryScanWorker.KEY_PENDING_PHOTO_IDS,
+                        recentPhotos.joinToString(",") { it.id.toString() })
+                    .putLong(GalleryScanWorker.KEY_PENDING_BEST_ID, bestId)
+                    .putLong(GalleryScanWorker.KEY_PENDING_SAVING, savingBytes)
+                    .apply()
+            }
+            scanNotifier.notifyScanDone(groupCount = 3, savingBytes = 52_428_800L, sampleUri = sampleUri)
+        }
     }
 
     fun debugTriggerScreenshotNotif() {
@@ -464,6 +549,11 @@ class MainViewModel @Inject constructor(
 
     fun debugTriggerScanDoneNotif() {
         scanNotifier.notifyScanDone(groupCount = 3, savingBytes = 52_428_800L)
+    }
+
+    fun debugTogglePremium() {
+        adGate.setPremium(!adGate.isPremium())
+        _isPremium.value = adGate.isPremium()
     }
 
     // ── 카테고리 정의 ────────────────────────────────────────────────────────
@@ -528,4 +618,6 @@ sealed class UiState : Parcelable {
 
 sealed interface MainEvent {
     data class RequestSystemDelete(val intentSender: IntentSender) : MainEvent
+    data object ShowRewardedAdDialog : MainEvent
+    data object ShowPremiumPrompt : MainEvent
 }

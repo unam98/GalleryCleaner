@@ -17,7 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AutoDelete
@@ -25,6 +29,7 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -49,6 +54,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,7 +79,11 @@ private enum class AppTab { SCAN, FAVORITES, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
+fun MainScreen(
+    viewModel: MainViewModel = hiltViewModel(),
+    onShowRewardedAd: (onRewarded: () -> Unit) -> Unit = {},
+    scanningBanner: @Composable () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedGroup by viewModel.selectedGroup.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
@@ -85,10 +95,13 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val isRefreshingFavorites by viewModel.isRefreshingFavorites.collectAsStateWithLifecycle()
     val periodicNotification by viewModel.periodicNotification.collectAsStateWithLifecycle()
     val screenshotNotification by viewModel.screenshotNotification.collectAsStateWithLifecycle()
+    val isPremium by viewModel.isPremium.collectAsStateWithLifecycle()
     val tournamentState by viewModel.tournamentState.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.SCAN) }
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showAdDialog by remember { mutableStateOf(false) }
+    var showPremiumDialog by remember { mutableStateOf(false) }
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -127,6 +140,8 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                 is MainEvent.RequestSystemDelete -> {
                     deleteLauncher.launch(IntentSenderRequest.Builder(event.intentSender).build())
                 }
+                is MainEvent.ShowRewardedAdDialog -> showAdDialog = true
+                is MainEvent.ShowPremiumPrompt -> showPremiumDialog = true
             }
         }
     }
@@ -222,6 +237,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                         if (toDelete.isNotEmpty()) viewModel.requestDelete(toDelete)
                     },
                     onRetry = { viewModel.reset() },
+                    scanningBanner = scanningBanner,
                 )
 
                 AppTab.FAVORITES -> FavoritesScreen(
@@ -237,9 +253,12 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                     screenshotNotification = screenshotNotification,
                     onPeriodicNotificationChange = { viewModel.setPeriodicNotification(it) },
                     onScreenshotNotificationChange = { viewModel.setScreenshotNotification(it) },
+                    isPremium = isPremium,
+                    onPurchasePremium = { showPremiumDialog = true },
                     onDebugTriggerPeriodicScan = { viewModel.debugTriggerPeriodicScan() },
                     onDebugTriggerScreenshotNotif = { viewModel.debugTriggerScreenshotNotif() },
                     onDebugTriggerScanDoneNotif = { viewModel.debugTriggerScanDoneNotif() },
+                    onDebugTogglePremium = { viewModel.debugTogglePremium() },
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -252,8 +271,59 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             onFilterChange = { viewModel.updateFilter(it) },
             onScan = { viewModel.scan() },
             onDismiss = { showFilterSheet = false },
+            isPremium = isPremium,
+            onPremiumRequired = { viewModel.requestPremiumPrompt() },
         )
     }
+
+    if (showPremiumDialog) {
+        PremiumUpgradeDialog(
+            onConfirm = { showPremiumDialog = false /* TODO: Play Billing */ },
+            onDismiss = { showPremiumDialog = false },
+        )
+    }
+
+    val context = LocalContext.current
+    if (showAdDialog) {
+        RewardedAdDialog(
+            onConfirm = {
+                showAdDialog = false
+                showFilterSheet = false
+                onShowRewardedAd { viewModel.onAdRewarded() }
+            },
+            onDismiss = { showAdDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun RewardedAdDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("1시간 광고 없이 스캔하기") },
+        text = { Text("동영상 광고 하나 보면\n1시간 동안 자유롭게 스캔하고 정리할 수 있어요.") },
+        confirmButton = {
+            Button(onClick = onConfirm) { Text("광고 보고 시작하기") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("취소") }
+        },
+    )
+}
+
+@Composable
+private fun PremiumUpgradeDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("프리미엄 전용 기능") },
+        text = { Text("전체 기간 스캔은 프리미엄 구매 후 이용할 수 있어요.\n광고 없이 모든 기능을 무제한으로 사용할 수 있습니다.") },
+        confirmButton = {
+            Button(onClick = onConfirm) { Text("구매하기") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("닫기") }
+        },
+    )
 }
 
 @Composable
@@ -306,10 +376,11 @@ private fun ScanTabContent(
     onGroupClick: (com.namilab.gallerycleaner.domain.model.PhotoGroup) -> Unit,
     onQuickDelete: (com.namilab.gallerycleaner.domain.model.PhotoGroup) -> Unit,
     onRetry: () -> Unit,
+    scanningBanner: @Composable () -> Unit = {},
 ) {
     when (val s = state) {
         is UiState.Idle -> IdleContent(permissionGranted = permissionGranted, onScan = onScan)
-        is UiState.Scanning -> ScanningIndicator(s)
+        is UiState.Scanning -> ScanningIndicator(s, banner = scanningBanner)
         is UiState.Done -> GroupListScreen(
             groups = filteredGroups,
             totalSaving = s.totalSavingBytes,
@@ -456,17 +527,14 @@ private fun FeatureRow(icon: ImageVector, iconBg: Color, label: String) {
 }
 
 @Composable
-private fun ScanningIndicator(s: UiState.Scanning) {
+private fun ScanningIndicator(s: UiState.Scanning, banner: @Composable () -> Unit = {}) {
     val etaText = if (s.etaMs > 0 && s.current > 0 && s.current < s.total) {
         when {
-            s.etaMs < 5_000 -> stringResource(R.string.scanning_eta_almost)
             s.etaMs < 60_000 -> {
-                // 10초 단위로 반올림: 47초 → 50초, 43초 → 40초
-                val rounded = ((s.etaMs / 1000 + 5) / 10) * 10
-                stringResource(R.string.scanning_eta_seconds, rounded.coerceAtLeast(10))
+                val secs = (s.etaMs / 1000).coerceAtLeast(1)
+                stringResource(R.string.scanning_eta_seconds, secs)
             }
             else -> {
-                // 분 단위: 0.5분 올림 (1분 29초 → 1분, 1분 31초 → 2분)
                 val minutes = ((s.etaMs + 30_000) / 60_000).coerceAtLeast(1)
                 stringResource(R.string.scanning_eta_minutes, minutes)
             }
@@ -478,8 +546,10 @@ private fun ScanningIndicator(s: UiState.Scanning) {
             .fillMaxSize()
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
+        Spacer(Modifier.height(16.dp))
+        ScanningTips(modifier = Modifier.weight(1f))
+        Spacer(Modifier.height(16.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -534,6 +604,78 @@ private fun ScanningIndicator(s: UiState.Scanning) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
                 }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        banner()
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+private data class ScanTip(val emoji: String, val title: String, val body: String)
+
+private val SCAN_TIPS = listOf(
+    ScanTip("💡", "알고 계셨나요?", "중복 사진을 주기적으로 정리하면\n폰이 더 빠르게 반응해요."),
+    ScanTip("📸", "버스트 사진 정리", "연속 촬영한 사진은 보통 한 장만 남겨도\n소중한 순간은 충분히 담겨요."),
+    ScanTip("💾", "용량 걱정 끝", "정기 정리를 하면\n용량 부족 걱정 없이 언제든 사진을 찍을 수 있어요."),
+    ScanTip("⭐", "더 철저하게 정리하려면", "프리미엄으로 전체 기간을 스캔하면\n더 많은 용량을 확보할 수 있어요."),
+)
+
+@Composable
+private fun ScanningTips(modifier: Modifier = Modifier) {
+    val pagerState = rememberPagerState(pageCount = { SCAN_TIPS.size })
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3_500)
+            pagerState.animateScrollToPage((pagerState.currentPage + 1) % SCAN_TIPS.size)
+        }
+    }
+
+    Column(modifier = modifier) {
+        HorizontalPager(state = pagerState) { page ->
+            val tip = SCAN_TIPS[page]
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        "${tip.emoji}  ${tip.title}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        tip.body,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            repeat(SCAN_TIPS.size) { index ->
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 3.dp)
+                        .size(if (index == pagerState.currentPage) 8.dp else 5.dp)
+                        .background(
+                            color = if (index == pagerState.currentPage)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant,
+                            shape = CircleShape,
+                        ),
+                )
             }
         }
     }

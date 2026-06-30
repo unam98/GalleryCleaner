@@ -10,6 +10,7 @@ import com.namilab.gallerycleaner.data.local.AppPreferences
 import com.namilab.gallerycleaner.notification.NotificationHelper
 import com.namilab.gallerycleaner.work.ScreenshotDetectorJob
 import com.namilab.gallerycleaner.work.WorkScheduler
+import com.google.android.gms.ads.MobileAds
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -29,6 +30,7 @@ class GalleryCleanerApp : Application(), Configuration.Provider {
                 .components { add(VideoFrameDecoder.Factory()) }
                 .build()
         )
+        MobileAds.initialize(this)
         notificationHelper.createChannel()
         if (appPreferences.periodicScanNotification) {
             workScheduler.schedulePeriodicScan()

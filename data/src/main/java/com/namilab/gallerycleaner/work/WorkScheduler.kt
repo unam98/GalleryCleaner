@@ -36,9 +36,12 @@ class WorkScheduler @Inject constructor(
         WorkManager.getInstance(context).cancelUniqueWork(GalleryScanWorker.WORK_NAME)
     }
 
-    fun triggerNow() {
+    fun triggerNow(forceFull: Boolean = false) {
+        val data = androidx.work.workDataOf(GalleryScanWorker.KEY_FORCE_FULL to forceFull)
         WorkManager.getInstance(context).enqueue(
-            OneTimeWorkRequestBuilder<GalleryScanWorker>().build()
+            OneTimeWorkRequestBuilder<GalleryScanWorker>()
+                .setInputData(data)
+                .build()
         )
     }
 }

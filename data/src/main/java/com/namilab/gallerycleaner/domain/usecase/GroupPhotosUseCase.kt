@@ -42,11 +42,16 @@ class GroupPhotosUseCase @Inject constructor(
     // TFLite 호출 전 dHash 유사도로 후보 사전 필터링 — 이 거리 이하인 이웃이 없으면 TFLite 건너뜀
     private val DHASH_PREFILTER_THRESHOLD = 20
 
+    /**
+     * @param skipSimilar true이면 TFLite 임베딩 유사도 단계를 건너뜀.
+     *   WorkManager 백그라운드 Worker처럼 시간 제약이 있는 환경에서 사용.
+     *   dHash 기반 정확 중복 + 버스트만 검출하므로 수십 배 빠름.
+     */
     suspend fun execute(
         photos: List<Photo>,
+        skipSimilar: Boolean = false,
         onProgress: (current: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
     ): List<PhotoGroup> = withContext(Dispatchers.Default) {
-        // 해시 단계: 전체 N장 progress (0..N)
         val hashes = computeHashes(photos) { curr, total ->
             onProgress(curr, total, "")
         }
@@ -57,10 +62,13 @@ class GroupPhotosUseCase @Inject constructor(
         val nonExact = photos.filter { it.id !in exactIds }
         val burstGroups = findBurstGroups(nonExact, hashes)
 
+        if (skipSimilar) {
+            return@withContext (exactGroups + burstGroups).sortedByDescending { it.potentialSavingBytes }
+        }
+
         val burstIds = burstGroups.flatMap { g -> g.photos.map { it.id } }.toHashSet()
         val ungrouped = nonExact.filter { it.id !in burstIds }
 
-        // 임베딩 단계: progress를 N 이후로 이어받아 N+M 까지 단일 흐름으로 표시
         val grandTotal = photos.size + ungrouped.size
         val similarGroups = findSimilarGroups(ungrouped, hashes) { embCurr, _ ->
             onProgress(photos.size + embCurr, grandTotal, "")
@@ -208,20 +216,27 @@ class GroupPhotosUseCase @Inject constructor(
                 // else: dHash 이웃 없음 → TFLite 건너뜀
             }
         }
-        onProgress(sorted.size - uncachedPhotos.size, sorted.size)
+        val cachedCount = sorted.size - uncachedPhotos.size
+        onProgress(cachedCount, sorted.size)
 
-        // Step 1: 병렬 bitmap decode (IO bound) — TFLite 대기 없이 미리 로드
+        // Step 1: 병렬 bitmap decode — 디코드마다 progress 절반씩 소비해 stall 방지
+        val decodeCounter = AtomicInteger(0)
         val semaphore = Semaphore(IO_CONCURRENCY)
         val decodedBitmaps: List<Pair<Photo, Bitmap?>> = uncachedPhotos.map { photo ->
             async(Dispatchers.IO) {
-                semaphore.withPermit { photo to decodeBitmapForEmbedding(photo) }
+                semaphore.withPermit {
+                    val bitmap = decodeBitmapForEmbedding(photo)
+                    onProgress(cachedCount + decodeCounter.incrementAndGet() / 2, sorted.size)
+                    photo to bitmap
+                }
             }
         }.awaitAll()
 
-        // Step 2: 직렬 TFLite 추론 (Interpreter는 thread-safe 아님)
+        // Step 2: 직렬 TFLite 추론 (Interpreter는 thread-safe 아님) — 나머지 절반 소비
         val newEmbeddings = mutableListOf<Pair<Long, FloatArray>>()
         decodedBitmaps.forEachIndexed { index, (photo, bitmap) ->
-            onProgress(sorted.size - uncachedPhotos.size + index + 1, sorted.size)
+            val tfliteStep = uncachedPhotos.size + index + 1
+            onProgress(cachedCount + tfliteStep / 2, sorted.size)
             bitmap ?: return@forEachIndexed
             val emb = embeddingExtractor.extract(bitmap)
             bitmap.recycle()
