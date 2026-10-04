@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,6 +38,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.namilab.gallerycleaner.feature.BuildConfig
+import com.namilab.gallerycleaner.presentation.ui.theme.DebugWarningBg
+import com.namilab.gallerycleaner.presentation.ui.theme.DebugWarningSubtitle
+import com.namilab.gallerycleaner.presentation.ui.theme.DebugWarningTitle
+import com.namilab.gallerycleaner.presentation.ui.theme.GoldAccent
+import com.namilab.gallerycleaner.presentation.ui.theme.PremiumCheckGold
+import com.namilab.gallerycleaner.presentation.ui.theme.PremiumGradientEnd
+import com.namilab.gallerycleaner.presentation.ui.theme.PremiumGradientStart
 import com.namilab.gallerycleaner.feature.R
 
 @Composable
@@ -107,7 +114,7 @@ private fun PremiumCard(isPremium: Boolean, onPurchase: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Icon(
-                    Icons.Filled.CheckCircle,
+                    Icons.Rounded.CheckCircle,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp),
@@ -136,16 +143,16 @@ private fun PremiumCard(isPremium: Boolean, onPurchase: () -> Unit) {
             Column(
                 modifier = Modifier
                     .background(
-                        Brush.linearGradient(listOf(Color(0xFF6200EE), Color(0xFF9C27B0))),
+                        Brush.linearGradient(listOf(PremiumGradientStart, PremiumGradientEnd)),
                         RoundedCornerShape(16.dp),
                     )
                     .padding(20.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Outlined.Star,
+                        Icons.Rounded.Star,
                         contentDescription = null,
-                        tint = Color(0xFFFFD700),
+                        tint = GoldAccent,
                         modifier = Modifier.size(20.dp),
                     )
                     Spacer(Modifier.width(8.dp))
@@ -166,9 +173,9 @@ private fun PremiumCard(isPremium: Boolean, onPurchase: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(
-                            Icons.Filled.CheckCircle,
+                            Icons.Rounded.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFFB2FF59),
+                            tint = PremiumCheckGold,
                             modifier = Modifier.size(14.dp),
                         )
                         Text(benefit, style = MaterialTheme.typography.bodySmall, color = Color.White)
@@ -182,7 +189,7 @@ private fun PremiumCard(isPremium: Boolean, onPurchase: () -> Unit) {
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
-                        contentColor = Color(0xFF6200EE),
+                        contentColor = PremiumGradientStart,
                     ),
                 ) {
                     Text("구매하기", fontWeight = FontWeight.Bold)
@@ -203,20 +210,20 @@ private fun DebugSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFFFF3E0), RoundedCornerShape(12.dp))
+            .background(DebugWarningBg, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
         Text(
             "🛠 개발자 옵션",
             style = MaterialTheme.typography.labelLarge,
-            color = Color(0xFFE65100),
+            color = DebugWarningTitle,
             fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(4.dp))
         Text(
             "DEBUG 빌드 전용 — 릴리즈에서는 표시되지 않음",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFFBF360C),
+            color = DebugWarningSubtitle,
         )
         Spacer(Modifier.height(12.dp))
 
@@ -240,7 +247,7 @@ private fun DebugButton(label: String, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFFE65100),
+            containerColor = DebugWarningTitle,
             contentColor = Color.White,
         ),
     ) {

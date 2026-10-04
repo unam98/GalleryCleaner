@@ -3,10 +3,15 @@ package com.namilab.gallerycleaner.presentation.screen
 import android.Manifest
 import android.app.Activity
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,25 +22,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import kotlinx.coroutines.delay
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.AutoDelete
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,8 +64,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,15 +79,15 @@ import com.namilab.gallerycleaner.feature.R
 import com.namilab.gallerycleaner.presentation.MainEvent
 import com.namilab.gallerycleaner.presentation.MainViewModel
 import com.namilab.gallerycleaner.presentation.UiState
-import com.namilab.gallerycleaner.presentation.ui.theme.iOSGreen
 
-private enum class AppTab { SCAN, FAVORITES, SETTINGS }
+private enum class AppTab { SCAN, TOURNAMENT, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
-    onShowRewardedAd: (onRewarded: () -> Unit) -> Unit = {},
+    onShowRewardedAd: (onRewarded: () -> Unit, onFailed: () -> Unit, onLoadingEnded: () -> Unit) -> Unit =
+        { onRewarded, _, onLoadingEnded -> onRewarded(); onLoadingEnded() },
     scanningBanner: @Composable () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -92,15 +98,17 @@ fun MainScreen(
     val availableCategories by viewModel.availableCategories.collectAsStateWithLifecycle()
     val sortOrder by viewModel.sortOrder.collectAsStateWithLifecycle()
     val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
-    val isRefreshingFavorites by viewModel.isRefreshingFavorites.collectAsStateWithLifecycle()
     val periodicNotification by viewModel.periodicNotification.collectAsStateWithLifecycle()
     val screenshotNotification by viewModel.screenshotNotification.collectAsStateWithLifecycle()
     val isPremium by viewModel.isPremium.collectAsStateWithLifecycle()
     val tournamentState by viewModel.tournamentState.collectAsStateWithLifecycle()
+    val onboardingCompleted by viewModel.onboardingCompleted.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.SCAN) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var showAdDialog by remember { mutableStateOf(false) }
+    var isPreparingAd by remember { mutableStateOf(false) }
     var showPremiumDialog by remember { mutableStateOf(false) }
 
     val permissionName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -146,12 +154,19 @@ fun MainScreen(
         }
     }
 
+    // 최초 실행 온보딩 — 미디어 권한 요청 전 가치 설명
+    if (!onboardingCompleted) {
+        OnboardingScreen(onComplete = { viewModel.completeOnboarding() })
+        return
+    }
+
     // 이상형 월드컵 오버레이 (그룹 상세보다 위)
     tournamentState?.let { ts ->
         TournamentScreen(
             state = ts,
             onPick = { viewModel.pickInTournament(it) },
             onClose = { viewModel.closeTournament() },
+            onSkipGroup = { viewModel.skipTournamentGroup() },
             onKeepWinner = { viewModel.keepTournamentWinner(it) },
         )
         return
@@ -178,7 +193,7 @@ fun MainScreen(
                     val title = when (selectedTab) {
                         AppTab.SCAN -> if (state is UiState.Done || state is UiState.Scanning)
                             stringResource(R.string.app_name) else null
-                        AppTab.FAVORITES -> stringResource(R.string.tab_favorites)
+                        AppTab.TOURNAMENT -> null
                         AppTab.SETTINGS -> stringResource(R.string.settings)
                     }
                     if (title != null) {
@@ -240,12 +255,9 @@ fun MainScreen(
                     scanningBanner = scanningBanner,
                 )
 
-                AppTab.FAVORITES -> FavoritesScreen(
-                    scanState = state,
-                    favoriteIds = favoriteIds,
-                    isRefreshing = isRefreshingFavorites,
-                    onRefresh = { viewModel.refreshFavorites() },
-                    onToggleFavorite = { viewModel.toggleFavorite(it) },
+                AppTab.TOURNAMENT -> TournamentTabContent(
+                    state = state,
+                    onStart = { viewModel.startTournamentQueue() },
                 )
 
                 AppTab.SETTINGS -> SettingsContent(
@@ -278,21 +290,34 @@ fun MainScreen(
 
     if (showPremiumDialog) {
         PremiumUpgradeDialog(
-            onConfirm = { showPremiumDialog = false /* TODO: Play Billing */ },
+            onConfirm = {
+                showPremiumDialog = false
+                (context as? Activity)?.let { viewModel.purchasePremium(it) }
+            },
             onDismiss = { showPremiumDialog = false },
         )
     }
 
-    val context = LocalContext.current
     if (showAdDialog) {
         RewardedAdDialog(
             onConfirm = {
                 showAdDialog = false
                 showFilterSheet = false
-                onShowRewardedAd { viewModel.onAdRewarded() }
+                isPreparingAd = true
+                onShowRewardedAd(
+                    { viewModel.onAdRewarded() },
+                    {
+                        Toast.makeText(context, context.getString(R.string.ad_load_failed), Toast.LENGTH_SHORT).show()
+                    },
+                    { isPreparingAd = false },
+                )
             },
             onDismiss = { showAdDialog = false },
         )
+    }
+
+    if (isPreparingAd) {
+        AdLoadingOverlay()
     }
 }
 
@@ -309,6 +334,32 @@ private fun RewardedAdDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("취소") }
         },
     )
+}
+
+/** 리워드 광고 로딩 중 화면을 막고 진행 상태를 보여준다 — 안 막으면 뒤 화면이 계속 터치돼서 멈춘 것처럼 보인다. */
+@Composable
+private fun AdLoadingOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = Color.White)
+            Spacer(Modifier.height(16.dp))
+            Text(
+                stringResource(R.string.ad_loading),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
 }
 
 @Composable
@@ -333,9 +384,9 @@ private fun AppNavigationBar(selectedTab: AppTab, onTabSelect: (AppTab) -> Unit)
         tonalElevation = 0.dp,
     ) {
         listOf(
-            Triple(AppTab.SCAN, Icons.Outlined.PhotoLibrary, R.string.tab_scan),
-            Triple(AppTab.FAVORITES, Icons.Outlined.Star, R.string.tab_favorites),
-            Triple(AppTab.SETTINGS, Icons.Outlined.Settings, R.string.settings),
+            Triple(AppTab.SCAN, Icons.Rounded.PhotoLibrary, R.string.tab_scan),
+            Triple(AppTab.TOURNAMENT, Icons.Rounded.EmojiEvents, R.string.tab_tournament),
+            Triple(AppTab.SETTINGS, Icons.Rounded.Settings, R.string.settings),
         ).forEach { (tab, icon, labelRes) ->
             val selected = selectedTab == tab
             NavigationBarItem(
@@ -343,7 +394,7 @@ private fun AppNavigationBar(selectedTab: AppTab, onTabSelect: (AppTab) -> Unit)
                 onClick = { onTabSelect(tab) },
                 icon = {
                     Icon(
-                        imageVector = if (selected && tab == AppTab.FAVORITES) Icons.Filled.Star else icon,
+                        imageVector = icon,
                         contentDescription = null,
                     )
                 },
@@ -379,27 +430,130 @@ private fun ScanTabContent(
     scanningBanner: @Composable () -> Unit = {},
 ) {
     when (val s = state) {
-        is UiState.Idle -> IdleContent(permissionGranted = permissionGranted, onScan = onScan)
+        is UiState.Idle -> IdleContent(
+            permissionGranted = permissionGranted,
+            onScan = onScan,
+        )
         is UiState.Scanning -> ScanningIndicator(s, banner = scanningBanner)
         is UiState.Done -> GroupListScreen(
             groups = filteredGroups,
-            totalSaving = s.totalSavingBytes,
             totalGroupCount = s.groups.size,
             selectedCategories = selectedCategories,
             availableCategories = availableCategories,
             sortOrder = sortOrder,
+            favoriteIds = favoriteIds,
             onCategoryToggle = onCategoryToggle,
             onClearCategories = onClearCategories,
             onSortOrderChange = onSortOrderChange,
             onGroupClick = onGroupClick,
             onQuickDelete = onQuickDelete,
         )
-        is UiState.Error -> ErrorContent(message = s.message, onRetry = onRetry)
+        is UiState.Error -> ErrorContent(onRetry = onRetry)
     }
 }
 
 @Composable
-private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
+private fun TournamentTabContent(state: UiState, onStart: () -> Unit) {
+    val eligibleCount = (state as? UiState.Done)?.groups
+        ?.count { it.photos.size >= 2 && it.photos.none { p -> p.isVideo } } ?: 0
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.weight(1f))
+
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .background(
+                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                    RoundedCornerShape(24.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.EmojiEvents,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(48.dp),
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        Text(
+            stringResource(R.string.tournament_tab_title),
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            stringResource(R.string.tournament_tab_subtitle),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(Modifier.weight(1f))
+
+        when {
+            state !is UiState.Done -> {
+                Text(
+                    stringResource(R.string.tournament_tab_empty_no_scan),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            eligibleCount == 0 -> {
+                Text(
+                    stringResource(R.string.tournament_tab_empty_no_groups),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            else -> {
+                Text(
+                    stringResource(R.string.tournament_groups_waiting, eligibleCount),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = onStart,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiary,
+                    ),
+                ) {
+                    Text(
+                        stringResource(R.string.tournament_tab_cta),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun IdleContent(
+    permissionGranted: Boolean,
+    onScan: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -418,7 +572,7 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Outlined.PhotoLibrary,
+                Icons.Rounded.PhotoLibrary,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(48.dp),
@@ -438,91 +592,162 @@ private fun IdleContent(permissionGranted: Boolean, onScan: () -> Unit) {
         Text(
             stringResource(R.string.idle_subtitle),
             style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(Modifier.height(4.dp))
+
+        Text(
+            stringResource(R.string.idle_subtitle_detail),
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(20.dp))
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Column {
-                FeatureRow(
-                    icon = Icons.Outlined.AutoDelete,
-                    iconBg = MaterialTheme.colorScheme.primary,
-                    label = stringResource(R.string.feature_auto_detect),
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 58.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-                FeatureRow(
-                    icon = Icons.Outlined.Videocam,
-                    iconBg = iOSGreen,
-                    label = stringResource(R.string.feature_video_clean),
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 58.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-                FeatureRow(
-                    icon = Icons.Outlined.Star,
-                    iconBg = MaterialTheme.colorScheme.tertiary,
-                    label = stringResource(R.string.feature_favorite_protect),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(28.dp))
-
-        Button(
-            onClick = onScan,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-            ),
-        ) {
+            Icon(
+                Icons.Rounded.Lock,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(12.dp),
+            )
             Text(
-                if (permissionGranted) stringResource(R.string.start_scan)
-                else stringResource(R.string.grant_media_access),
-                style = MaterialTheme.typography.titleSmall,
+                stringResource(R.string.home_privacy_note),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }
 
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.weight(1f))
+
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(216.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+            )
+            Box(
+                modifier = Modifier
+                    .size(168.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+            )
+            Box(
+                modifier = Modifier
+                    .size(136.dp)
+                    .shadow(elevation = 8.dp, shape = CircleShape)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(bounded = true, color = Color.White),
+                        onClick = onScan,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (permissionGranted) stringResource(R.string.scan_button_label)
+                        else stringResource(R.string.grant_access_button_label),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
+
+        StorageUsageCard()
+
+        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun FeatureRow(icon: ImageVector, iconBg: Color, label: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+private fun StorageUsageCard() {
+    val (usedBytes, totalBytes) = remember {
+        val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+        val total = stat.totalBytes
+        val free = stat.availableBytes
+        (total - free) to total
+    }
+    val usageRatio = if (totalBytes > 0) usedBytes.toFloat() / totalBytes else 0f
+    val animProgress by animateFloatAsState(
+        targetValue = usageRatio,
+        animationSpec = tween(durationMillis = 900),
+        label = "storageProgress",
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .background(iconBg, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp),
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.storage_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    if (totalBytes > 0)
+                        "%.1f / %.0f GB".format(usedBytes / 1_073_741_824.0, totalBytes / 1_073_741_824.0)
+                    else stringResource(R.string.storage_measuring),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { animProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outlineVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            val statusRes = when {
+                usageRatio >= 0.9f -> R.string.storage_status_critical
+                usageRatio >= 0.7f -> R.string.storage_status_warning
+                else -> R.string.storage_status_ok
+            }
+            val statusColor = when {
+                usageRatio >= 0.9f -> MaterialTheme.colorScheme.error
+                usageRatio >= 0.7f -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Text(
+                stringResource(statusRes),
+                style = MaterialTheme.typography.labelSmall,
+                color = statusColor,
             )
         }
-        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -623,58 +848,46 @@ private val SCAN_TIPS = listOf(
 
 @Composable
 private fun ScanningTips(modifier: Modifier = Modifier) {
-    val pagerState = rememberPagerState(pageCount = { SCAN_TIPS.size })
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(3_500)
-            pagerState.animateScrollToPage((pagerState.currentPage + 1) % SCAN_TIPS.size)
-        }
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SCAN_TIPS.forEach { tip -> ScanTipCard(tip) }
     }
+}
 
-    Column(modifier = modifier) {
-        HorizontalPager(state = pagerState) { page ->
-            val tip = SCAN_TIPS[page]
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text(
-                        "${tip.emoji}  ${tip.title}",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        tip.body,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(10.dp))
+@Composable
+private fun ScanTipCard(tip: ScanTip) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            repeat(SCAN_TIPS.size) { index ->
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(if (index == pagerState.currentPage) 8.dp else 5.dp)
-                        .background(
-                            color = if (index == pagerState.currentPage)
-                                MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outlineVariant,
-                            shape = CircleShape,
-                        ),
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(tip.emoji, style = MaterialTheme.typography.titleMedium)
+            }
+            Column {
+                Text(
+                    tip.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    tip.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -682,14 +895,14 @@ private fun ScanningTips(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ErrorContent(message: String, onRetry: () -> Unit) {
+private fun ErrorContent(onRetry: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            stringResource(R.string.error_message, message),
+            stringResource(R.string.error_message),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

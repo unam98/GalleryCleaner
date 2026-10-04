@@ -9,6 +9,9 @@ data class TournamentState(
     val pairIndex: Int,
     val roundNumber: Int,
     val totalPhotos: Int,
+    /** 여러 그룹을 순차 진행하는 큐 모드일 때 현재 몇 번째 그룹인지 (1-based). 단일 그룹 실행 시 1/1. */
+    val queuePosition: Int = 1,
+    val queueTotal: Int = 1,
 ) {
     val left: Photo? get() = bracket.getOrNull(pairIndex * 2)
     val right: Photo? get() = bracket.getOrNull(pairIndex * 2 + 1)

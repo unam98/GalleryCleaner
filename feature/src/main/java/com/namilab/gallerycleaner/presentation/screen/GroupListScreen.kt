@@ -4,6 +4,7 @@ import com.namilab.gallerycleaner.domain.util.formatBytes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,24 +23,29 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.GppGood
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,11 +69,11 @@ import com.namilab.gallerycleaner.presentation.MainViewModel
 @Composable
 fun GroupListScreen(
     groups: List<PhotoGroup>,
-    totalSaving: Long,
     totalGroupCount: Int,
     selectedCategories: Set<String>,
     availableCategories: Set<String>,
     sortOrder: GroupSortOrder,
+    favoriteIds: Set<Long> = emptySet(),
     onCategoryToggle: (String) -> Unit,
     onClearCategories: () -> Unit,
     onSortOrderChange: (GroupSortOrder) -> Unit,
@@ -75,6 +81,7 @@ fun GroupListScreen(
     onQuickDelete: (PhotoGroup) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    var pendingDelete by remember { mutableStateOf<PhotoGroup?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -84,18 +91,20 @@ fun GroupListScreen(
                 .background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
-            item { SavingHeaderCard(totalSaving = totalSaving, totalGroupCount = totalGroupCount, filteredCount = groups.size) }
+            item {
+                SavingHeaderCard(
+                    displaySaving = groups.sumOf { it.potentialSavingBytes },
+                    totalGroupCount = totalGroupCount,
+                    filteredCount = groups.size,
+                )
+            }
             item { Spacer(Modifier.height(8.dp)) }
             item {
-                CategoryFilterRow(
+                FilterSortRow(
                     selectedCategories = selectedCategories,
                     availableCategories = availableCategories,
                     onCategoryToggle = onCategoryToggle,
                     onClearCategories = onClearCategories,
-                )
-            }
-            item {
-                SortOrderRow(
                     sortOrder = sortOrder,
                     onSortOrderChange = onSortOrderChange,
                 )
@@ -142,8 +151,9 @@ fun GroupListScreen(
                         Column {
                             PhotoGroupRow(
                                 group = group,
+                                favoriteIds = favoriteIds,
                                 onClick = { onGroupClick(group) },
-                                onQuickDelete = { onQuickDelete(group) },
+                                onQuickDelete = { pendingDelete = group },
                             )
                             if (!isLast) {
                                 HorizontalDivider(
@@ -163,57 +173,62 @@ fun GroupListScreen(
             modifier = Modifier.align(Alignment.CenterEnd),
         )
     }
+
+    pendingDelete?.let { group ->
+        QuickDeleteConfirmDialog(
+            group = group,
+            onConfirm = {
+                onQuickDelete(group)
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null },
+        )
+    }
 }
 
 @Composable
-private fun SortOrderRow(
-    sortOrder: GroupSortOrder,
-    onSortOrderChange: (GroupSortOrder) -> Unit,
-) {
-    data class SortChip(val labelRes: Int, val ascending: GroupSortOrder, val descending: GroupSortOrder)
-
-    val chips = listOf(
-        SortChip(R.string.sort_saving, GroupSortOrder.SAVING_ASC, GroupSortOrder.SAVING_DESC),
-        SortChip(R.string.sort_count,  GroupSortOrder.COUNT_ASC,  GroupSortOrder.COUNT_DESC),
-        SortChip(R.string.sort_date,   GroupSortOrder.DATE_OLD,   GroupSortOrder.DATE_NEW),
-    )
-
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 8.dp),
-    ) {
-        items(chips) { chip ->
-            val isAscSelected  = sortOrder == chip.ascending
-            val isDescSelected = sortOrder == chip.descending
-            val isSelected     = isAscSelected || isDescSelected
-            FilterChip(
-                selected = isSelected,
-                onClick = {
-                    onSortOrderChange(
-                        if (isDescSelected) chip.ascending else chip.descending
-                    )
-                },
-                label = { Text(stringResource(chip.labelRes), style = MaterialTheme.typography.labelLarge) },
-                trailingIcon = if (isSelected) {
-                    {
-                        Icon(
-                            imageVector = if (isAscSelected) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+private fun QuickDeleteConfirmDialog(group: PhotoGroup, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val toDelete = remember(group.id, group.bestPhotoId) {
+        group.photos.filter { it.id != group.bestPhotoId }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.quick_delete_confirm_title, toDelete.size)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.quick_delete_confirm_desc, formatBytes(group.potentialSavingBytes)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(toDelete, key = { it.id }) { photo ->
+                        AsyncImage(
+                            model = photo.uri,
                             contentDescription = null,
-                            modifier = Modifier.size(14.dp),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(8.dp)),
                         )
                     }
-                } else null,
-                shape = RoundedCornerShape(8.dp),
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = Color.White,
-                    selectedTrailingIconColor = Color.White,
-                ),
-            )
-        }
-    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.quick_delete_confirm_action), color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
 }
+
 
 @Composable
 private fun VerticalScrollbar(
@@ -247,7 +262,7 @@ private fun VerticalScrollbar(
 }
 
 @Composable
-private fun SavingHeaderCard(totalSaving: Long, totalGroupCount: Int, filteredCount: Int) {
+private fun SavingHeaderCard(displaySaving: Long, totalGroupCount: Int, filteredCount: Int) {
     val isFiltered = filteredCount < totalGroupCount
     Card(
         modifier = Modifier
@@ -271,7 +286,7 @@ private fun SavingHeaderCard(totalSaving: Long, totalGroupCount: Int, filteredCo
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    formatBytes(totalSaving),
+                    formatBytes(displaySaving),
                     style = MaterialTheme.typography.headlineSmall,
                     color = Color.White,
                 )
@@ -290,7 +305,7 @@ private fun SavingHeaderCard(totalSaving: Long, totalGroupCount: Int, filteredCo
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Filled.Delete,
+                    Icons.Rounded.Delete,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(26.dp),
@@ -301,25 +316,27 @@ private fun SavingHeaderCard(totalSaving: Long, totalGroupCount: Int, filteredCo
 }
 
 @Composable
-private fun CategoryFilterRow(
+private fun FilterSortRow(
     selectedCategories: Set<String>,
     availableCategories: Set<String>,
     onCategoryToggle: (String) -> Unit,
     onClearCategories: () -> Unit,
+    sortOrder: GroupSortOrder,
+    onSortOrderChange: (GroupSortOrder) -> Unit,
 ) {
+    data class SortChip(val labelRes: Int, val ascending: GroupSortOrder, val descending: GroupSortOrder)
+
     val orderedCategories = remember(availableCategories) {
         MainViewModel.CATEGORY_LABELS.keys.filter { it in availableCategories }
     }
-    if (orderedCategories.isEmpty()) return
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        Text(
-            stringResource(R.string.category_label),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 6.dp),
+    val sortChips = remember {
+        listOf(
+            SortChip(R.string.sort_saving, GroupSortOrder.SAVING_ASC, GroupSortOrder.SAVING_DESC),
+            SortChip(R.string.sort_count, GroupSortOrder.COUNT_ASC, GroupSortOrder.COUNT_DESC),
+            SortChip(R.string.sort_date, GroupSortOrder.DATE_OLD, GroupSortOrder.DATE_NEW),
         )
     }
+
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -349,19 +366,57 @@ private fun CategoryFilterRow(
                 ),
             )
         }
+        item {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 2.dp)
+                    .width(1.dp)
+                    .height(20.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+        }
+        items(sortChips) { chip ->
+            val isAscSelected = sortOrder == chip.ascending
+            val isDescSelected = sortOrder == chip.descending
+            val isSelected = isAscSelected || isDescSelected
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSortOrderChange(if (isDescSelected) chip.ascending else chip.descending) },
+                label = { Text(stringResource(chip.labelRes), style = MaterialTheme.typography.labelLarge) },
+                trailingIcon = if (isSelected) {
+                    {
+                        Icon(
+                            imageVector = if (isAscSelected) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                } else null,
+                shape = RoundedCornerShape(8.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                    selectedLabelColor = Color.White,
+                    selectedTrailingIconColor = Color.White,
+                ),
+            )
+        }
     }
 }
 
-private val THUMB_SIZE = 56.dp
+private val THUMB_SIZE = 72.dp
 
 @Composable
-private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete: () -> Unit) {
+private fun PhotoGroupRow(group: PhotoGroup, favoriteIds: Set<Long>, onClick: () -> Unit, onQuickDelete: () -> Unit) {
     val sorted = remember(group.id, group.bestPhotoId) {
         val best = group.photos.find { it.id == group.bestPhotoId }
         val rest = group.photos.filter { it.id != group.bestPhotoId }
         if (best != null) listOf(best) + rest else group.photos
     }
-    val showCount = if (sorted.size > 3) 2 else sorted.size
+    // 리딩 구간을 "항상 정확히 2장"으로 고정폭 처리 — 넘치는 개수는 별도 박스를 더 붙이는 대신
+    // 마지막 썸네일 위에 반투명 스크림+"+N" 오버레이로 표시한다. 이러면 리딩 구간 너비가 뱃지
+    // 유무와 무관하게 항상 동일해서, 뒤따르는 용량 텍스트·삭제 아이콘이 화면 폭에 밀려 찌그러질
+    // 여지가 구조적으로 없고, 오른쪽 끝 삭제 아이콘 위치도 행마다 항상 동일하게 고정된다.
+    val showCount = minOf(sorted.size, 2)
     val overflow = sorted.size - showCount
 
     Row(
@@ -372,23 +427,13 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        sorted.take(showCount).forEach { photo ->
-            GroupThumbnail(photo = photo, isBest = photo.id == group.bestPhotoId)
-        }
-        if (overflow > 0) {
-            Box(
-                modifier = Modifier
-                    .size(THUMB_SIZE)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "+$overflow",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        sorted.take(showCount).forEachIndexed { index, photo ->
+            GroupThumbnail(
+                photo = photo,
+                isBest = photo.id == group.bestPhotoId,
+                isFavorite = photo.id in favoriteIds,
+                overflowCount = if (index == showCount - 1) overflow else 0,
+            )
         }
 
         Spacer(Modifier.weight(1f))
@@ -398,14 +443,22 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
 
-        IconButton(
-            onClick = onQuickDelete,
-            modifier = Modifier.size(40.dp),
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(bounded = true),
+                    onClick = onQuickDelete,
+                ),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Filled.Delete,
+                Icons.Rounded.Delete,
                 contentDescription = stringResource(R.string.quick_delete_desc),
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(20.dp),
@@ -415,7 +468,7 @@ private fun PhotoGroupRow(group: PhotoGroup, onClick: () -> Unit, onQuickDelete:
 }
 
 @Composable
-private fun GroupThumbnail(photo: Photo, isBest: Boolean) {
+private fun GroupThumbnail(photo: Photo, isBest: Boolean, isFavorite: Boolean = false, overflowCount: Int = 0) {
     Box {
         AsyncImage(
             model = photo.uri,
@@ -425,7 +478,23 @@ private fun GroupThumbnail(photo: Photo, isBest: Boolean) {
                 .size(THUMB_SIZE)
                 .clip(RoundedCornerShape(8.dp)),
         )
-        if (photo.isVideo) {
+        if (overflowCount > 0) {
+            // 남은 개수 오버레이가 재생 아이콘보다 우선 — 동시에 필요할 일은 없다 (마지막 썸네일 하나에만 붙음)
+            Box(
+                modifier = Modifier
+                    .size(THUMB_SIZE)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "+$overflowCount",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+        } else if (photo.isVideo) {
             Box(
                 modifier = Modifier
                     .size(THUMB_SIZE)
@@ -433,7 +502,7 @@ private fun GroupThumbnail(photo: Photo, isBest: Boolean) {
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Filled.PlayArrow,
+                    Icons.Rounded.PlayArrow,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.9f),
                     modifier = Modifier.size(20.dp),
@@ -451,8 +520,26 @@ private fun GroupThumbnail(photo: Photo, isBest: Boolean) {
                     .padding(horizontal = 4.dp, vertical = 2.dp),
             ) {
                 Icon(
-                    Icons.Filled.Star,
+                    Icons.Rounded.Star,
                     contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(9.dp),
+                )
+            }
+        }
+        if (isFavorite) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .background(
+                        MaterialTheme.colorScheme.tertiary,
+                        RoundedCornerShape(topStart = 6.dp, bottomEnd = 8.dp),
+                    )
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.GppGood,
+                    contentDescription = stringResource(R.string.tab_favorites),
                     tint = Color.White,
                     modifier = Modifier.size(9.dp),
                 )

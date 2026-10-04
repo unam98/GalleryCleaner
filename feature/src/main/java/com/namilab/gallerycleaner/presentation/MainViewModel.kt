@@ -1,9 +1,11 @@
 package com.namilab.gallerycleaner.presentation
 
+import android.app.Activity
 import android.content.Context
 import android.content.IntentSender
 import android.os.Build
 import android.os.Parcelable
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -28,7 +30,6 @@ import com.namilab.gallerycleaner.work.WorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,6 +88,11 @@ class MainViewModel @Inject constructor(
     private val _isPremium = MutableStateFlow(adGate.isPremium())
     val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
 
+    init {
+        // Billing 콜백·구매 복원 등 비동기 프리미엄 상태 변경을 반영
+        adGate.addOnPremiumChangedListener { premium -> _isPremium.value = premium }
+    }
+
     private val _photoLabels = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
 
     private val _selectedCategories = MutableStateFlow<Set<String>>(
@@ -106,14 +112,19 @@ class MainViewModel @Inject constructor(
         .map { it.toHashSet() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    private val _isRefreshingFavorites = MutableStateFlow(false)
-    val isRefreshingFavorites: StateFlow<Boolean> = _isRefreshingFavorites.asStateFlow()
-
     private val _periodicNotification = MutableStateFlow(appPreferences.periodicScanNotification)
     val periodicNotification: StateFlow<Boolean> = _periodicNotification.asStateFlow()
 
     private val _screenshotNotification = MutableStateFlow(appPreferences.screenshotNotification)
     val screenshotNotification: StateFlow<Boolean> = _screenshotNotification.asStateFlow()
+
+    private val _onboardingCompleted = MutableStateFlow(appPreferences.onboardingCompleted)
+    val onboardingCompleted: StateFlow<Boolean> = _onboardingCompleted.asStateFlow()
+
+    fun completeOnboarding() {
+        appPreferences.onboardingCompleted = true
+        _onboardingCompleted.value = true
+    }
 
     // 스캔 결과에서 실제로 매칭된 카테고리만 (CATEGORY_LABELS 순서 유지)
     val availableCategories: StateFlow<Set<String>> = combine(
@@ -238,11 +249,11 @@ class MainViewModel @Inject constructor(
     }
 
     fun scan(overrideSinceMs: Long? = null) {
-        if (!adGate.isUnlocked()) {
-            viewModelScope.launch { _events.emit(MainEvent.ShowRewardedAdDialog) }
+        if (adGate.isUnlocked()) {
+            startScan(overrideSinceMs)
             return
         }
-        startScan(overrideSinceMs)
+        viewModelScope.launch { _events.emit(MainEvent.ShowRewardedAdDialog) }
     }
 
     fun onAdRewarded() {
@@ -252,6 +263,10 @@ class MainViewModel @Inject constructor(
 
     fun requestPremiumPrompt() {
         viewModelScope.launch { _events.emit(MainEvent.ShowPremiumPrompt) }
+    }
+
+    fun purchasePremium(activity: Activity) {
+        adGate.launchPremiumPurchase(activity)
     }
 
     private fun startScan(overrideSinceMs: Long? = null) {
@@ -279,11 +294,23 @@ class MainViewModel @Inject constructor(
 
                 // ETA: 슬라이딩 윈도우 속도 추정 + EMA 평활화 + 2초 throttle
                 // computeEta는 Dispatchers.IO 병렬 코루틴에서 동시 호출되므로 synchronized 필수
+                //
+                // groupPhotos.execute()는 total을 두 번 보고한다 — Phase 0+1(dHash, 빠름) 동안은
+                // total=photos.size, Phase 2(TFLite, 느림) 진입 시 total=grandTotal(더 큰 값)로 점프.
+                // 이 total 점프 + 두 구간의 항목당 처리 시간이 수십 배 차이나는 걸 감안 안 하면
+                // 창(window)에 이전 구간의 타임스탬프가 남아있는 동안 ETA가 계속 위로 흔들린다.
+                // → total이 바뀌는 순간(=구간 전환) 추정기를 리셋해서 새 구간 속도로만 다시 잰다.
                 val etaLock = Any()
                 val recentTimestamps = ArrayDeque<Long>(ETA_WINDOW)
                 var smoothedEta = 0L
                 var lastEtaEmitMs = 0L
+                var lastTotal = -1
                 fun computeEta(current: Int, total: Int): Long = synchronized(etaLock) {
+                    if (total != lastTotal) {
+                        lastTotal = total
+                        recentTimestamps.clear()
+                        smoothedEta = 0L
+                    }
                     val now = System.currentTimeMillis()
                     recentTimestamps.addLast(now)
                     if (recentTimestamps.size > ETA_WINDOW) recentTimestamps.removeFirst()
@@ -349,6 +376,7 @@ class MainViewModel @Inject constructor(
                     scanNotifier.notifyScanDone(groups.size, totalSaving, sampleUri)
                 }
             }.onFailure { e ->
+                Log.e("MainViewModel", "스캔 실패", e)
                 ScanForegroundService.stop(context)
                 _state.value = UiState.Error(e.message ?: "Unknown error")
             }
@@ -426,15 +454,6 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun refreshFavorites() {
-        viewModelScope.launch {
-            _isRefreshingFavorites.value = true
-            // Room Flow auto-updates; spinner gives explicit user feedback
-            delay(500)
-            _isRefreshingFavorites.value = false
-        }
-    }
-
     // ── 설정 ─────────────────────────────────────────────────────────────────
 
     fun setPeriodicNotification(enabled: Boolean) {
@@ -452,7 +471,36 @@ class MainViewModel @Inject constructor(
 
     // ── 이상형 월드컵 ─────────────────────────────────────────────────────────
 
+    private var tournamentQueue: List<PhotoGroup> = emptyList()
+    private var tournamentQueueTotal: Int = 1
+    private var tournamentPosition: Int = 1
+    private val tournamentPendingDeletes = mutableListOf<Photo>()
+
+    /** 그룹 상세에서 특정 그룹 하나만 대결시킬 때 */
     fun startTournament(group: PhotoGroup) {
+        tournamentQueue = emptyList()
+        tournamentQueueTotal = 1
+        tournamentPosition = 1
+        tournamentPendingDeletes.clear()
+        beginTournamentRound(group)
+    }
+
+    /** 바텀 네비 "대결" 탭 — 현재 스캔 결과의 모든 그룹을 순차적으로 대결시킴 */
+    fun startTournamentQueue() {
+        // 사진 적은 그룹부터 — 큰 그룹(라운드 많음)에 먼저 걸리면 첫 그룹에서부터 오래 걸려 지침
+        val groups = (_state.value as? UiState.Done)?.groups
+            ?.filter { it.photos.size >= 2 && it.photos.none { p -> p.isVideo } }
+            ?.sortedBy { it.photos.size }
+            ?: emptyList()
+        if (groups.isEmpty()) return
+        tournamentQueue = groups.drop(1)
+        tournamentQueueTotal = groups.size
+        tournamentPosition = 1
+        tournamentPendingDeletes.clear()
+        beginTournamentRound(groups.first())
+    }
+
+    private fun beginTournamentRound(group: PhotoGroup) {
         val shuffled = group.photos.shuffled()
         _tournamentState.value = TournamentState(
             groupId = group.id,
@@ -461,7 +509,30 @@ class MainViewModel @Inject constructor(
             pairIndex = 0,
             roundNumber = 1,
             totalPhotos = shuffled.size,
+            queuePosition = tournamentPosition,
+            queueTotal = tournamentQueueTotal,
         )
+    }
+
+    private fun advanceQueueOrFinish() {
+        val next = tournamentQueue.firstOrNull()
+        if (next != null) {
+            tournamentQueue = tournamentQueue.drop(1)
+            tournamentPosition++
+            beginTournamentRound(next)
+        } else {
+            finishTournamentSession()
+        }
+    }
+
+    /** 큐 전체 종료 — 지금까지 확정된 그룹들의 삭제만 한 번에 요청 (그룹마다 시스템 확인창이 뜨지 않도록) */
+    private fun finishTournamentSession() {
+        _tournamentState.value = null
+        tournamentQueue = emptyList()
+        tournamentQueueTotal = 1
+        val toDelete = tournamentPendingDeletes.toList()
+        tournamentPendingDeletes.clear()
+        if (toDelete.isNotEmpty()) requestDelete(toDelete)
     }
 
     fun pickInTournament(photo: Photo) {
@@ -500,7 +571,13 @@ class MainViewModel @Inject constructor(
     }
 
     fun closeTournament() {
-        _tournamentState.value = null
+        finishTournamentSession()
+    }
+
+    /** 지금 그룹은 결정 없이 건너뛰고(삭제 없음) 큐의 다음 그룹으로 — 세션 전체는 끝내지 않음 */
+    fun skipTournamentGroup() {
+        if (_tournamentState.value == null) return
+        advanceQueueOrFinish()
     }
 
     fun keepTournamentWinner(winnerPhoto: Photo) {
@@ -513,9 +590,8 @@ class MainViewModel @Inject constructor(
                 if (g.id == group.id) g.copy(bestPhotoId = winnerPhoto.id) else g
             },
         )
-        val toDelete = group.photos.filter { it.id != winnerPhoto.id }
-        if (toDelete.isNotEmpty()) requestDelete(toDelete)
-        _tournamentState.value = null
+        tournamentPendingDeletes += group.photos.filter { it.id != winnerPhoto.id }
+        advanceQueueOrFinish()
     }
 
     // ── 디버그 (DEBUG 빌드 전용) ──────────────────────────────────────────────

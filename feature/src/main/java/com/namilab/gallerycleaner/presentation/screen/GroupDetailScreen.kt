@@ -1,10 +1,10 @@
 package com.namilab.gallerycleaner.presentation.screen
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -27,11 +27,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.GppGood
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -45,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -63,6 +63,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.namilab.gallerycleaner.feature.R
 import com.namilab.gallerycleaner.domain.model.Photo
@@ -109,7 +113,7 @@ fun GroupDetailScreen(
                 ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
@@ -199,7 +203,6 @@ internal fun PhotoFullScreenViewer(
     onToggleFavorite: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val context = LocalContext.current
     val pagerState = rememberPagerState(initialPage = initialIndex) { photos.size }
     val current = photos[pagerState.currentPage]
     val isBest = current.id == bestPhotoId
@@ -209,7 +212,12 @@ internal fun PhotoFullScreenViewer(
     // 핀치줌 상태 (페이지 이동 시 리셋)
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-    LaunchedEffect(pagerState.currentPage) { scale = 1f; offset = Offset.Zero }
+    var playingVideoPage by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pagerState.currentPage) {
+        scale = 1f
+        offset = Offset.Zero
+        playingVideoPage = null
+    }
 
     val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
         scale = (scale * zoomChange).coerceIn(1f, 5f)
@@ -230,54 +238,55 @@ internal fun PhotoFullScreenViewer(
             modifier = Modifier.fillMaxSize(),
         ) { page ->
             Box(Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = photos[page].uri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = if (page == pagerState.currentPage) scale else 1f,
-                            scaleY = if (page == pagerState.currentPage) scale else 1f,
-                            translationX = if (page == pagerState.currentPage) offset.x else 0f,
-                            translationY = if (page == pagerState.currentPage) offset.y else 0f,
-                        )
-                        .transformable(
-                            state = transformableState,
-                            canPan = { scale > 1f },
-                            enabled = page == pagerState.currentPage,
-                        )
-                        .pointerInput(page) {
-                            detectTapGestures(onDoubleTap = {
-                                if (page == pagerState.currentPage) {
-                                    if (scale > 1f) { scale = 1f; offset = Offset.Zero }
-                                    else scale = 2.5f
-                                }
-                            })
-                        },
-                )
-                // 동영상 재생 버튼 — 탭 시 시스템 플레이어 실행
-                if (photos[page].isVideo) {
-                    Box(
+                if (photos[page].isVideo && playingVideoPage == page) {
+                    InlineVideoPlayer(
+                        uri = photos[page].uri,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    AsyncImage(
+                        model = photos[page].uri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
-                            .size(72.dp)
-                            .align(Alignment.Center)
-                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
-                            .clickable {
-                                val intent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(photos[page].uri, "video/*")
-                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                }
-                                context.startActivity(intent)
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = if (page == pagerState.currentPage) scale else 1f,
+                                scaleY = if (page == pagerState.currentPage) scale else 1f,
+                                translationX = if (page == pagerState.currentPage) offset.x else 0f,
+                                translationY = if (page == pagerState.currentPage) offset.y else 0f,
+                            )
+                            .transformable(
+                                state = transformableState,
+                                canPan = { scale > 1f },
+                                enabled = page == pagerState.currentPage,
+                            )
+                            .pointerInput(page) {
+                                detectTapGestures(onDoubleTap = {
+                                    if (page == pagerState.currentPage) {
+                                        if (scale > 1f) { scale = 1f; offset = Offset.Zero }
+                                        else scale = 2.5f
+                                    }
+                                })
                             },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(40.dp),
-                        )
+                    )
+                    // 동영상 재생 버튼 — 탭 시 인앱 플레이어로 재생
+                    if (photos[page].isVideo) {
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .align(Alignment.Center)
+                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                .clickable { playingVideoPage = page },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(40.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -305,7 +314,7 @@ internal fun PhotoFullScreenViewer(
                     shape = RoundedCornerShape(4.dp),
                 ) {
                     Text(
-                        "BEST",
+                        stringResource(R.string.best_badge),
                         color = Color.White,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -316,13 +325,13 @@ internal fun PhotoFullScreenViewer(
             }
             IconButton(onClick = { onToggleFavorite(current.id) }) {
                 Icon(
-                    if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    Icons.Rounded.GppGood,
                     contentDescription = if (isFavorite) stringResource(R.string.favorite_remove) else stringResource(R.string.favorite_add),
                     tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White,
                 )
             }
             IconButton(onClick = onDismiss) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
+                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
             }
         }
 
@@ -365,6 +374,30 @@ internal fun PhotoFullScreenViewer(
     }
 }
 
+@Composable
+private fun InlineVideoPlayer(uri: android.net.Uri, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val exoPlayer = remember(uri) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(uri))
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(exoPlayer) {
+        onDispose { exoPlayer.release() }
+    }
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = true
+            }
+        },
+    )
+}
+
 private fun formatDuration(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
@@ -372,6 +405,7 @@ private fun formatDuration(ms: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PhotoSelectCell(
     photo: Photo,
@@ -386,7 +420,11 @@ private fun PhotoSelectCell(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onViewFull() },
+            .combinedClickable(
+                // 탭 = 선택 토글 (즐겨찾기는 선택 불가라 탭하면 대신 원본 보기)
+                onClick = { if (isFavorite) onViewFull() else onToggle() },
+                onLongClick = onViewFull,
+            ),
     ) {
         AsyncImage(
             model = photo.uri,
@@ -416,7 +454,7 @@ private fun PhotoSelectCell(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Default.PlayArrow,
+                    Icons.Rounded.PlayArrow,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(22.dp),
@@ -450,7 +488,7 @@ private fun PhotoSelectCell(
                     .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {
                 Text(
-                    "BEST",
+                    stringResource(R.string.best_badge),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
                 )
@@ -463,7 +501,7 @@ private fun PhotoSelectCell(
             modifier = Modifier.align(Alignment.BottomStart).padding(2.dp),
         ) {
             Icon(
-                if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                Icons.Rounded.GppGood,
                 contentDescription = null,
                 tint = if (isFavorite) MaterialTheme.colorScheme.tertiary else Color.White.copy(alpha = 0.85f),
             )

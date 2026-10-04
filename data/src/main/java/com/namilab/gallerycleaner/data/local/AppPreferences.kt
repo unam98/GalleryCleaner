@@ -20,8 +20,13 @@ class AppPreferences @Inject constructor(
         get() = prefs.getBoolean(KEY_SCREENSHOT_NOTIFICATION, true)
         set(v) = prefs.edit { putBoolean(KEY_SCREENSHOT_NOTIFICATION, v) }
 
+    var onboardingCompleted: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
+        set(v) = prefs.edit { putBoolean(KEY_ONBOARDING_COMPLETED, v) }
+
     companion object {
         const val KEY_PERIODIC_NOTIFICATION = "periodic_notification"
         const val KEY_SCREENSHOT_NOTIFICATION = "screenshot_notification"
+        const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
     }
 }

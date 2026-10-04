@@ -22,7 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +45,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import com.namilab.gallerycleaner.presentation.ui.theme.GoldAccent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +63,7 @@ fun TournamentScreen(
     state: TournamentState,
     onPick: (Photo) -> Unit,
     onClose: () -> Unit,
+    onSkipGroup: () -> Unit,
     onKeepWinner: (Photo) -> Unit,
 ) {
     BackHandler { onClose() }
@@ -70,23 +74,25 @@ fun TournamentScreen(
             .background(Color.Black),
     ) {
         AnimatedContent(
-            targetState = state.isComplete,
+            targetState = state,
             transitionSpec = { fadeIn() togetherWith fadeOut() },
             label = "tournament_content",
-        ) { isComplete ->
-            if (isComplete) {
-                val winner = state.winner!!
+        ) { s ->
+            if (s.isComplete) {
+                val winner = s.winner!!
                 TournamentResultScreen(
                     winner = winner,
-                    totalPhotos = state.totalPhotos,
+                    totalPhotos = s.totalPhotos,
+                    hasNextInQueue = s.queuePosition < s.queueTotal,
                     onKeepWinner = { onKeepWinner(winner) },
                     onClose = onClose,
                 )
             } else {
                 TournamentMatchScreen(
-                    state = state,
+                    state = s,
                     onPick = onPick,
                     onClose = onClose,
+                    onSkipGroup = onSkipGroup,
                 )
             }
         }
@@ -98,9 +104,11 @@ private fun TournamentMatchScreen(
     state: TournamentState,
     onPick: (Photo) -> Unit,
     onClose: () -> Unit,
+    onSkipGroup: () -> Unit,
 ) {
     val left = state.left ?: return
     val right = state.right
+    val hasNextInQueue = state.queuePosition < state.queueTotal
 
     Column(
         modifier = Modifier
@@ -111,11 +119,22 @@ private fun TournamentMatchScreen(
         // 헤더
         Box(modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
+                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
+            }
+            if (hasNextInQueue) {
+                TextButton(
+                    onClick = onSkipGroup,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
+                ) {
+                    Text(stringResource(R.string.tournament_skip_group), color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodySmall)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(16.dp))
+                }
             }
             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    stringResource(R.string.tournament_title),
+                    if (state.queueTotal > 1)
+                        stringResource(R.string.tournament_title_queued, state.queuePosition, state.queueTotal)
+                    else stringResource(R.string.tournament_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
@@ -261,6 +280,7 @@ private fun PhotoCard(
 private fun TournamentResultScreen(
     winner: Photo,
     totalPhotos: Int,
+    hasNextInQueue: Boolean,
     onKeepWinner: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -272,7 +292,7 @@ private fun TournamentResultScreen(
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
+                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
             }
             Text(
                 stringResource(R.string.tournament_result_title),
@@ -304,10 +324,10 @@ private fun TournamentResultScreen(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
-                    .background(Color(0xFFFFD700), RoundedCornerShape(8.dp))
+                    .background(GoldAccent, RoundedCornerShape(8.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
-                Text("🏆 BEST", style = MaterialTheme.typography.labelMedium, color = Color.Black, fontWeight = FontWeight.ExtraBold)
+                Text(stringResource(R.string.tournament_winner_badge), style = MaterialTheme.typography.labelMedium, color = Color.Black, fontWeight = FontWeight.ExtraBold)
             }
         }
 
@@ -320,10 +340,15 @@ private fun TournamentResultScreen(
         Button(
             onClick = onKeepWinner,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+            colors = ButtonDefaults.buttonColors(containerColor = GoldAccent),
             shape = RoundedCornerShape(12.dp),
         ) {
-            Text(stringResource(R.string.tournament_keep_winner, totalPhotos - 1), color = Color.Black, fontWeight = FontWeight.Bold)
+            Text(
+                if (hasNextInQueue) stringResource(R.string.tournament_keep_winner_next, totalPhotos - 1)
+                else stringResource(R.string.tournament_keep_winner, totalPhotos - 1),
+                color = Color.Black,
+                fontWeight = FontWeight.Bold,
+            )
         }
 
         Spacer(Modifier.height(8.dp))
