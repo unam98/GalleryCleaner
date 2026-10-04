@@ -89,6 +89,9 @@ dependencies {
     // AdMob
     implementation(libs.admob)
 
+    // Play Billing
+    implementation(libs.billing.ktx)
+
     // Unit Tests
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

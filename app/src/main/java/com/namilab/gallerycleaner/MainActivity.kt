@@ -36,8 +36,8 @@ class MainActivity : ComponentActivity() {
             GalleryCleanerTheme {
                 MainScreen(
                     viewModel = viewModel,
-                    onShowRewardedAd = { onRewarded ->
-                        rewardedAdManager.show(this, onRewarded = onRewarded)
+                    onShowRewardedAd = { onRewarded, onFailed, onLoadingEnded ->
+                        rewardedAdManager.show(this, onRewarded = onRewarded, onFailed = onFailed, onLoadingEnded = onLoadingEnded)
                     },
                     scanningBanner = { BannerAdView() },
                 )
