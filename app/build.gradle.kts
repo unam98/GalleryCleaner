@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,15 +10,25 @@ plugins {
 }
 
 android {
-    namespace = "com.unam.gallerycleaner"
+    namespace = "com.namilab.gallerycleaner"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.unam.gallerycleaner"
+        applicationId = "com.namilab.gallerycleaner"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
+        val localProps = Properties()
+        val localPropsFile = rootProject.file("local.properties")
+        if (localPropsFile.exists()) localPropsFile.inputStream().use { localProps.load(it) }
+        val admobAppId = localProps.getProperty("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
+        val admobRewardedId = localProps.getProperty("ADMOB_REWARDED_ID", "ca-app-pub-3940256099942544/5224354917")
+        val admobBannerId = localProps.getProperty("ADMOB_BANNER_ID", "ca-app-pub-3940256099942544/6300978111")
+        manifestPlaceholders["ADMOB_APP_ID"] = admobAppId
+        buildConfigField("String", "ADMOB_REWARDED_ID", "\"$admobRewardedId\"")
+        buildConfigField("String", "ADMOB_BANNER_ID", "\"$admobBannerId\"")
     }
 
     buildTypes {
@@ -73,6 +85,12 @@ dependencies {
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
     ksp(libs.hilt.work.compiler)
+
+    // AdMob
+    implementation(libs.admob)
+
+    // Play Billing
+    implementation(libs.billing.ktx)
 
     // Unit Tests
     testImplementation(libs.junit)

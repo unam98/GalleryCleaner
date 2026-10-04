@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.unam.gallerycleaner.feature"
+    namespace = "com.namilab.gallerycleaner.feature"
     compileSdk = 36
     defaultConfig { minSdk = 26 }
     compileOptions {
@@ -49,6 +49,10 @@ dependencies {
     // Image
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
+
+    // Video playback (인앱 재생)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     // Permissions
     implementation(libs.accompanist.permissions)

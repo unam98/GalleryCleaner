@@ -1,0 +1,699 @@
+package com.namilab.gallerycleaner.presentation
+
+import android.app.Activity
+import android.content.Context
+import android.content.IntentSender
+import android.os.Build
+import android.os.Parcelable
+import android.util.Log
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.namilab.gallerycleaner.data.local.AppPreferences
+import com.namilab.gallerycleaner.data.local.MediaStoreDataSource
+import com.namilab.gallerycleaner.data.local.db.FavoritePhotoDao
+import com.namilab.gallerycleaner.data.local.db.FavoritePhotoEntity
+import com.namilab.gallerycleaner.domain.model.MediaType
+import com.namilab.gallerycleaner.domain.model.Photo
+import com.namilab.gallerycleaner.domain.model.PhotoGroup
+import com.namilab.gallerycleaner.domain.model.ScanFilter
+import com.namilab.gallerycleaner.domain.usecase.GroupPhotosUseCase
+import com.namilab.gallerycleaner.domain.usecase.GroupVideosUseCase
+import com.namilab.gallerycleaner.util.MlKitLabelExtractor
+import com.namilab.gallerycleaner.work.ScanForegroundService
+import com.namilab.gallerycleaner.work.ScreenshotDetectorJob
+import com.namilab.gallerycleaner.domain.AdGate
+import com.namilab.gallerycleaner.domain.ScanNotifier
+import com.namilab.gallerycleaner.domain.model.GroupType
+import com.namilab.gallerycleaner.work.GalleryScanWorker
+import com.namilab.gallerycleaner.work.WorkScheduler
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.parcelize.Parcelize
+import javax.inject.Inject
+
+@HiltViewModel
+class MainViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
+    @ApplicationContext private val context: Context,
+    private val mediaStore: MediaStoreDataSource,
+    private val groupPhotos: GroupPhotosUseCase,
+    private val groupVideos: GroupVideosUseCase,
+    private val labelExtractor: MlKitLabelExtractor,
+    private val favoriteDao: FavoritePhotoDao,
+    private val workScheduler: WorkScheduler,
+    private val appPreferences: AppPreferences,
+    private val scanNotifier: ScanNotifier,
+    private val scanResultsCache: ScanResultsCache,
+    private val adGate: AdGate,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<UiState>(
+        // Application-scope singleton cache survives Activity recreation (config changes)
+        scanResultsCache.cachedGroups?.let { groups ->
+            UiState.Done(groups = groups, totalSavingBytes = scanResultsCache.cachedTotalSavingBytes)
+        } ?: when (val saved = savedStateHandle.get<UiState>(KEY_STATE)) {
+            is UiState.Done -> saved
+            else -> UiState.Idle
+        }
+    )
+    val state: StateFlow<UiState> = _state.asStateFlow()
+
+    private val _filter = MutableStateFlow(savedStateHandle.get<ScanFilter>(KEY_FILTER) ?: ScanFilter())
+    val filter: StateFlow<ScanFilter> = _filter.asStateFlow()
+
+    private val _selectedGroup = MutableStateFlow<PhotoGroup?>(
+        savedStateHandle.get<String>(KEY_SELECTED_GROUP_ID)?.let { id ->
+            (_state.value as? UiState.Done)?.groups?.find { it.id == id }
+        }
+    )
+    val selectedGroup: StateFlow<PhotoGroup?> = _selectedGroup.asStateFlow()
+
+    private val _events = MutableSharedFlow<MainEvent>()
+    val events: SharedFlow<MainEvent> = _events.asSharedFlow()
+
+    private val _isPremium = MutableStateFlow(adGate.isPremium())
+    val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
+
+    init {
+        // Billing 콜백·구매 복원 등 비동기 프리미엄 상태 변경을 반영
+        adGate.addOnPremiumChangedListener { premium -> _isPremium.value = premium }
+    }
+
+    private val _photoLabels = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
+
+    private val _selectedCategories = MutableStateFlow<Set<String>>(
+        savedStateHandle.get<String>(KEY_CATEGORIES)
+            ?.split("|")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    )
+    val selectedCategories: StateFlow<Set<String>> = _selectedCategories.asStateFlow()
+
+    private val _sortOrder = MutableStateFlow(
+        savedStateHandle.get<String>(KEY_SORT_ORDER)
+            ?.let { runCatching { GroupSortOrder.valueOf(it) }.getOrNull() }
+            ?: GroupSortOrder.SAVING_DESC
+    )
+    val sortOrder: StateFlow<GroupSortOrder> = _sortOrder.asStateFlow()
+
+    val favoriteIds: StateFlow<Set<Long>> = favoriteDao.observeAll()
+        .map { it.toHashSet() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    private val _periodicNotification = MutableStateFlow(appPreferences.periodicScanNotification)
+    val periodicNotification: StateFlow<Boolean> = _periodicNotification.asStateFlow()
+
+    private val _screenshotNotification = MutableStateFlow(appPreferences.screenshotNotification)
+    val screenshotNotification: StateFlow<Boolean> = _screenshotNotification.asStateFlow()
+
+    private val _onboardingCompleted = MutableStateFlow(appPreferences.onboardingCompleted)
+    val onboardingCompleted: StateFlow<Boolean> = _onboardingCompleted.asStateFlow()
+
+    fun completeOnboarding() {
+        appPreferences.onboardingCompleted = true
+        _onboardingCompleted.value = true
+    }
+
+    // 스캔 결과에서 실제로 매칭된 카테고리만 (CATEGORY_LABELS 순서 유지)
+    val availableCategories: StateFlow<Set<String>> = combine(
+        _state, _photoLabels,
+    ) { state, labels ->
+        val groups = (state as? UiState.Done)?.groups ?: return@combine emptySet()
+        CATEGORY_LABELS.keys.filterTo(LinkedHashSet()) { category ->
+            groups.any { group ->
+                group.photos.any { photo ->
+                    val photoLabels = labels[photo.id] ?: emptyList()
+                    CATEGORY_LABELS[category]?.any { l ->
+                        photoLabels.any { it.equals(l, ignoreCase = true) }
+                    } == true
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    // 카테고리 필터 + 정렬 적용
+    val filteredGroups: StateFlow<List<PhotoGroup>> = combine(
+        _state, _photoLabels, _selectedCategories, _sortOrder,
+    ) { state, labels, categories, sortOrder ->
+        val groups = (state as? UiState.Done)?.groups ?: return@combine emptyList()
+        val filtered = if (categories.isEmpty()) groups else groups.filter { group ->
+            categories.all { category ->
+                group.photos.any { photo ->
+                    val photoLabels = labels[photo.id] ?: emptyList()
+                    CATEGORY_LABELS[category]?.any { l ->
+                        photoLabels.any { it.equals(l, ignoreCase = true) }
+                    } == true
+                }
+            }
+        }
+        sortOrder.apply(filtered)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _tournamentState = MutableStateFlow<TournamentState?>(null)
+    val tournamentState: StateFlow<TournamentState?> = _tournamentState.asStateFlow()
+
+    private var pendingDeleteIds: List<Long> = emptyList()
+
+    /** 알림 탭 → 최상위 그룹으로 즉시 이동
+     *  1순위: in-memory ScanResultsCache (앱 백그라운드 상태)
+     *  2순위: SharedPreferences photo IDs + MediaStore 조회 (프로세스 재시작 후) */
+    fun navigateToTopGroup() {
+        val inMemoryTop = (_state.value as? UiState.Done)?.groups?.firstOrNull()
+        if (inMemoryTop != null) { selectGroup(inMemoryTop); return }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences(GalleryScanWorker.PREFS_NAME, Context.MODE_PRIVATE)
+            val idsStr = prefs.getString(GalleryScanWorker.KEY_PENDING_PHOTO_IDS, null) ?: return@launch
+            val ids = idsStr.split(",").mapNotNull { it.toLongOrNull() }
+            if (ids.size < 2) return@launch
+            val bestId = prefs.getLong(GalleryScanWorker.KEY_PENDING_BEST_ID, -1L)
+            val savingBytes = prefs.getLong(GalleryScanWorker.KEY_PENDING_SAVING, 0L)
+
+            val photos = mediaStore.getPhotosByIds(ids)
+            if (photos.size < 2) return@launch
+
+            val group = PhotoGroup(
+                id = "notification_group",
+                photos = photos.sortedBy { it.dateTaken },
+                bestPhotoId = if (bestId > 0L && photos.any { it.id == bestId }) bestId else photos.first().id,
+                type = GroupType.BURST,
+                potentialSavingBytes = savingBytes,
+            )
+            prefs.edit()
+                .remove(GalleryScanWorker.KEY_PENDING_PHOTO_IDS)
+                .remove(GalleryScanWorker.KEY_PENDING_BEST_ID)
+                .remove(GalleryScanWorker.KEY_PENDING_SAVING)
+                .apply()
+
+            withContext(Dispatchers.Main) {
+                scanResultsCache.save(listOf(group), savingBytes)
+                _state.value = UiState.Done(groups = listOf(group), totalSavingBytes = savingBytes)
+                selectGroup(group)
+            }
+        }
+    }
+
+    init {
+        // 프로세스 재시작 후 Done 상태 복원 시 캐시 기반 라벨 복원
+        (_state.value as? UiState.Done)?.let { done ->
+            viewModelScope.launch(Dispatchers.IO) {
+                val allPhotos = done.groups.flatMap { it.photos }.distinctBy { it.id }
+                _photoLabels.value = labelExtractor.getLabelsForPhotos(allPhotos)
+            }
+        }
+
+        viewModelScope.launch {
+            _state.collect { state ->
+                if (state !is UiState.Scanning) {
+                    try {
+                        savedStateHandle[KEY_STATE] = state
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    // ── 스캔 ──────────────────────────────────────────────────────────────────
+
+    fun updateFilter(filter: ScanFilter) {
+        _filter.value = filter
+        savedStateHandle[KEY_FILTER] = filter
+    }
+
+    fun toggleCategory(category: String) {
+        val current = _selectedCategories.value
+        _selectedCategories.value = if (category in current) current - category else current + category
+        savedStateHandle[KEY_CATEGORIES] = _selectedCategories.value.joinToString("|")
+    }
+
+    fun clearCategories() {
+        _selectedCategories.value = emptySet()
+        savedStateHandle.remove<String>(KEY_CATEGORIES)
+    }
+
+    fun setSortOrder(order: GroupSortOrder) {
+        _sortOrder.value = order
+        savedStateHandle[KEY_SORT_ORDER] = order.name
+    }
+
+    fun scan(overrideSinceMs: Long? = null) {
+        if (adGate.isUnlocked()) {
+            startScan(overrideSinceMs)
+            return
+        }
+        viewModelScope.launch { _events.emit(MainEvent.ShowRewardedAdDialog) }
+    }
+
+    fun onAdRewarded() {
+        adGate.unlock()
+        startScan()
+    }
+
+    fun requestPremiumPrompt() {
+        viewModelScope.launch { _events.emit(MainEvent.ShowPremiumPrompt) }
+    }
+
+    fun purchasePremium(activity: Activity) {
+        adGate.launchPremiumPurchase(activity)
+    }
+
+    private fun startScan(overrideSinceMs: Long? = null) {
+        val f = if (overrideSinceMs != null) ScanFilter(customSinceMs = overrideSinceMs) else _filter.value
+        _selectedCategories.value = emptySet()
+        _photoLabels.value = emptyMap()
+        savedStateHandle.remove<String>(KEY_CATEGORIES)
+
+        val startedAtMs = System.currentTimeMillis()
+
+        viewModelScope.launch {
+            _state.value = UiState.Scanning(startedAtMs = startedAtMs)
+            runCatching {
+                val sinceMs = f.sinceTimestampMs()
+                val untilMs = f.untilTimestampMs()
+                val photos = if (f.mediaType != MediaType.VIDEO_ONLY)
+                    mediaStore.getAllPhotos(sinceMs = sinceMs, untilMs = untilMs, minSizeBytes = f.minSizeBytes)
+                else emptyList()
+                val videos = if (f.mediaType != MediaType.PHOTO_ONLY)
+                    mediaStore.getAllVideos(sinceMs = sinceMs, untilMs = untilMs, minSizeBytes = f.minSizeBytes, maxDurationMs = f.maxVideoDurationMs)
+                else emptyList()
+
+                // 포그라운드 서비스 시작 (백그라운드 진행 보장)
+                ScanForegroundService.start(context, photos.size)
+
+                // ETA: 슬라이딩 윈도우 속도 추정 + EMA 평활화 + 2초 throttle
+                // computeEta는 Dispatchers.IO 병렬 코루틴에서 동시 호출되므로 synchronized 필수
+                //
+                // groupPhotos.execute()는 total을 두 번 보고한다 — Phase 0+1(dHash, 빠름) 동안은
+                // total=photos.size, Phase 2(TFLite, 느림) 진입 시 total=grandTotal(더 큰 값)로 점프.
+                // 이 total 점프 + 두 구간의 항목당 처리 시간이 수십 배 차이나는 걸 감안 안 하면
+                // 창(window)에 이전 구간의 타임스탬프가 남아있는 동안 ETA가 계속 위로 흔들린다.
+                // → total이 바뀌는 순간(=구간 전환) 추정기를 리셋해서 새 구간 속도로만 다시 잰다.
+                val etaLock = Any()
+                val recentTimestamps = ArrayDeque<Long>(ETA_WINDOW)
+                var smoothedEta = 0L
+                var lastEtaEmitMs = 0L
+                var lastTotal = -1
+                fun computeEta(current: Int, total: Int): Long = synchronized(etaLock) {
+                    if (total != lastTotal) {
+                        lastTotal = total
+                        recentTimestamps.clear()
+                        smoothedEta = 0L
+                    }
+                    val now = System.currentTimeMillis()
+                    recentTimestamps.addLast(now)
+                    if (recentTimestamps.size > ETA_WINDOW) recentTimestamps.removeFirst()
+                    if (recentTimestamps.size < 2) return@synchronized smoothedEta
+                    val windowElapsed = now - recentTimestamps.first()
+                    val windowItems = (recentTimestamps.size - 1).coerceAtLeast(1)
+                    val msPerItem = windowElapsed.toDouble() / windowItems
+                    val raw = ((total - current) * msPerItem).toLong()
+                    // EMA α=0.15: 이전 값이 85% 반영 → 급격한 변화 완화
+                    smoothedEta = if (smoothedEta == 0L) raw else (0.85 * smoothedEta + 0.15 * raw).toLong()
+                    // 2초마다만 새 ETA 반환 (throttle)
+                    if (now - lastEtaEmitMs >= 2_000L) {
+                        lastEtaEmitMs = now
+                        smoothedEta
+                    } else {
+                        -1L  // sentinel: 이전 값 유지
+                    }
+                }
+
+                _state.value = UiState.Scanning(current = 0, total = photos.size, startedAtMs = startedAtMs)
+                var scanTotal = photos.size
+                val photoGroups = groupPhotos.execute(photos) { current, total, label ->
+                    scanTotal = total
+                    val eta = computeEta(current, total)
+                    _state.value = UiState.Scanning(
+                        current = current,
+                        total = total,
+                        label = label,
+                        startedAtMs = startedAtMs,
+                        etaMs = if (eta >= 0) eta else (_state.value as? UiState.Scanning)?.etaMs ?: 0L,
+                    )
+                    // ETA throttle(2초)에 맞춰 알림 프로그레스도 갱신
+                    if (eta >= 0) ScanForegroundService.update(context, current, total, eta)
+                }
+                val videoGroups = groupVideos.execute(videos)
+                val groups = (photoGroups + videoGroups).sortedByDescending { it.potentialSavingBytes }
+
+                if (groups.isNotEmpty()) {
+                    val allPhotos = groups.flatMap { it.photos }.distinctBy { it.id }
+                    val labelTotal = scanTotal + allPhotos.size
+                    _photoLabels.value = withContext(Dispatchers.IO) {
+                        labelExtractor.getLabelsForPhotos(allPhotos) { labelCurr, _ ->
+                            _state.value = UiState.Scanning(
+                                current = scanTotal + labelCurr,
+                                total = labelTotal,
+                                isLabelingPhase = true,
+                                startedAtMs = startedAtMs,
+                            )
+                        }
+                    }
+                }
+                groups
+            }.onSuccess { groups ->
+                ScanForegroundService.stop(context)
+                val totalSaving = groups.sumOf { it.potentialSavingBytes }
+                scanResultsCache.save(groups, totalSaving)
+                _state.value = UiState.Done(groups = groups, totalSavingBytes = totalSaving)
+                val topGroup = groups.maxByOrNull { it.potentialSavingBytes }
+                val sampleUri = topGroup?.photos?.find { it.id == topGroup.bestPhotoId }?.uri
+                    ?: groups.firstOrNull()?.photos?.firstOrNull()?.uri
+                // 비트맵 로딩이 IO 작업이므로 IO 디스패처에서 호출
+                withContext(Dispatchers.IO) {
+                    scanNotifier.notifyScanDone(groups.size, totalSaving, sampleUri)
+                }
+            }.onFailure { e ->
+                Log.e("MainViewModel", "스캔 실패", e)
+                ScanForegroundService.stop(context)
+                _state.value = UiState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun reset() {
+        scanResultsCache.clear()
+        _state.value = UiState.Idle
+        _selectedCategories.value = emptySet()
+        _photoLabels.value = emptyMap()
+    }
+
+    // ── 그룹/삭제 ────────────────────────────────────────────────────────────
+
+    fun selectGroup(group: PhotoGroup) {
+        _selectedGroup.value = group
+        savedStateHandle[KEY_SELECTED_GROUP_ID] = group.id
+    }
+
+    fun clearGroupSelection() {
+        _selectedGroup.value = null
+        savedStateHandle.remove<String>(KEY_SELECTED_GROUP_ID)
+    }
+
+    fun requestDelete(photos: List<Photo>) {
+        val ids = photos.map { it.id }
+        val uris = photos.map { it.uri }
+        viewModelScope.launch {
+            pendingDeleteIds = ids
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val intentSender = mediaStore.createDeleteRequest(uris)
+                _events.emit(MainEvent.RequestSystemDelete(intentSender))
+            } else {
+                mediaStore.deleteMedia(uris)
+                applyDeletion(ids)
+            }
+        }
+    }
+
+    fun onSystemDeleteConfirmed() {
+        applyDeletion(pendingDeleteIds)
+        pendingDeleteIds = emptyList()
+    }
+
+    private fun applyDeletion(deletedIds: List<Long>) {
+        val current = _state.value as? UiState.Done ?: return
+        val deletedSet = deletedIds.toHashSet()
+        val updatedGroups = current.groups.mapNotNull { group ->
+            val remaining = group.photos.filterNot { it.id in deletedSet }
+            if (remaining.size < 2) return@mapNotNull null
+            val newBestId = if (group.bestPhotoId !in deletedSet) group.bestPhotoId
+                            else remaining.first().id
+            val newSaving = remaining.sumOf { it.size } - (remaining.find { it.id == newBestId }?.size ?: 0L)
+            group.copy(photos = remaining, bestPhotoId = newBestId, potentialSavingBytes = newSaving)
+        }
+        _state.value = current.copy(
+            groups = updatedGroups,
+            totalSavingBytes = updatedGroups.sumOf { it.potentialSavingBytes },
+        )
+        val groupId = _selectedGroup.value?.id
+        _selectedGroup.value = updatedGroups.find { it.id == groupId }
+        if (_selectedGroup.value == null) savedStateHandle.remove<String>(KEY_SELECTED_GROUP_ID)
+    }
+
+    // ── 즐겨찾기 ─────────────────────────────────────────────────────────────
+
+    fun toggleFavorite(photoId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (photoId in favoriteIds.value) {
+                favoriteDao.delete(photoId)
+            } else {
+                favoriteDao.insert(FavoritePhotoEntity(photoId))
+            }
+        }
+    }
+
+    // ── 설정 ─────────────────────────────────────────────────────────────────
+
+    fun setPeriodicNotification(enabled: Boolean) {
+        appPreferences.periodicScanNotification = enabled
+        _periodicNotification.value = enabled
+        if (enabled) workScheduler.schedulePeriodicScan() else workScheduler.cancelScan()
+    }
+
+    fun setScreenshotNotification(enabled: Boolean) {
+        appPreferences.screenshotNotification = enabled
+        _screenshotNotification.value = enabled
+        if (enabled) ScreenshotDetectorJob.schedule(context)
+        else ScreenshotDetectorJob.cancel(context)
+    }
+
+    // ── 이상형 월드컵 ─────────────────────────────────────────────────────────
+
+    private var tournamentQueue: List<PhotoGroup> = emptyList()
+    private var tournamentQueueTotal: Int = 1
+    private var tournamentPosition: Int = 1
+    private val tournamentPendingDeletes = mutableListOf<Photo>()
+
+    /** 그룹 상세에서 특정 그룹 하나만 대결시킬 때 */
+    fun startTournament(group: PhotoGroup) {
+        tournamentQueue = emptyList()
+        tournamentQueueTotal = 1
+        tournamentPosition = 1
+        tournamentPendingDeletes.clear()
+        beginTournamentRound(group)
+    }
+
+    /** 바텀 네비 "대결" 탭 — 현재 스캔 결과의 모든 그룹을 순차적으로 대결시킴 */
+    fun startTournamentQueue() {
+        // 사진 적은 그룹부터 — 큰 그룹(라운드 많음)에 먼저 걸리면 첫 그룹에서부터 오래 걸려 지침
+        val groups = (_state.value as? UiState.Done)?.groups
+            ?.filter { it.photos.size >= 2 && it.photos.none { p -> p.isVideo } }
+            ?.sortedBy { it.photos.size }
+            ?: emptyList()
+        if (groups.isEmpty()) return
+        tournamentQueue = groups.drop(1)
+        tournamentQueueTotal = groups.size
+        tournamentPosition = 1
+        tournamentPendingDeletes.clear()
+        beginTournamentRound(groups.first())
+    }
+
+    private fun beginTournamentRound(group: PhotoGroup) {
+        val shuffled = group.photos.shuffled()
+        _tournamentState.value = TournamentState(
+            groupId = group.id,
+            bracket = shuffled,
+            nextRound = emptyList(),
+            pairIndex = 0,
+            roundNumber = 1,
+            totalPhotos = shuffled.size,
+            queuePosition = tournamentPosition,
+            queueTotal = tournamentQueueTotal,
+        )
+    }
+
+    private fun advanceQueueOrFinish() {
+        val next = tournamentQueue.firstOrNull()
+        if (next != null) {
+            tournamentQueue = tournamentQueue.drop(1)
+            tournamentPosition++
+            beginTournamentRound(next)
+        } else {
+            finishTournamentSession()
+        }
+    }
+
+    /** 큐 전체 종료 — 지금까지 확정된 그룹들의 삭제만 한 번에 요청 (그룹마다 시스템 확인창이 뜨지 않도록) */
+    private fun finishTournamentSession() {
+        _tournamentState.value = null
+        tournamentQueue = emptyList()
+        tournamentQueueTotal = 1
+        val toDelete = tournamentPendingDeletes.toList()
+        tournamentPendingDeletes.clear()
+        if (toDelete.isNotEmpty()) requestDelete(toDelete)
+    }
+
+    fun pickInTournament(photo: Photo) {
+        val current = _tournamentState.value ?: return
+        if (current.isComplete) return
+
+        var newNextRound = current.nextRound + photo
+        var newPairIndex = current.pairIndex + 1
+        var bracket = current.bracket
+        var roundNumber = current.roundNumber
+
+        // 홀수 남은 사진 자동 진출
+        while (newPairIndex * 2 < bracket.size) {
+            val nextLeft = bracket.getOrNull(newPairIndex * 2)
+            val nextRight = bracket.getOrNull(newPairIndex * 2 + 1)
+            if (nextRight == null && nextLeft != null) {
+                newNextRound = newNextRound + nextLeft
+                newPairIndex++
+            } else break
+        }
+
+        // 라운드 완료 시 다음 라운드로
+        if (newPairIndex * 2 >= bracket.size) {
+            bracket = newNextRound
+            newNextRound = emptyList()
+            newPairIndex = 0
+            roundNumber++
+        }
+
+        _tournamentState.value = current.copy(
+            bracket = bracket,
+            nextRound = newNextRound,
+            pairIndex = newPairIndex,
+            roundNumber = roundNumber,
+        )
+    }
+
+    fun closeTournament() {
+        finishTournamentSession()
+    }
+
+    /** 지금 그룹은 결정 없이 건너뛰고(삭제 없음) 큐의 다음 그룹으로 — 세션 전체는 끝내지 않음 */
+    fun skipTournamentGroup() {
+        if (_tournamentState.value == null) return
+        advanceQueueOrFinish()
+    }
+
+    fun keepTournamentWinner(winnerPhoto: Photo) {
+        val tournament = _tournamentState.value ?: return
+        val currentDone = _state.value as? UiState.Done ?: return
+        val group = currentDone.groups.find { it.id == tournament.groupId } ?: return
+        // Promote winner to bestPhotoId before deletion so applyDeletion preserves it
+        _state.value = currentDone.copy(
+            groups = currentDone.groups.map { g ->
+                if (g.id == group.id) g.copy(bestPhotoId = winnerPhoto.id) else g
+            },
+        )
+        tournamentPendingDeletes += group.photos.filter { it.id != winnerPhoto.id }
+        advanceQueueOrFinish()
+    }
+
+    // ── 디버그 (DEBUG 빌드 전용) ──────────────────────────────────────────────
+
+    fun debugTriggerPeriodicScan() {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 최근 사진 3장을 가져와 deep-link SharedPreferences 세팅 + 알림 발송
+            val recentPhotos = mediaStore.getAllPhotos().takeLast(3)
+            val sampleUri = recentPhotos.lastOrNull()?.uri
+            if (recentPhotos.size >= 2) {
+                val bestId = recentPhotos.last().id
+                val savingBytes = recentPhotos.dropLast(1).sumOf { it.size }
+                context.getSharedPreferences(GalleryScanWorker.PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(GalleryScanWorker.KEY_PENDING_PHOTO_IDS,
+                        recentPhotos.joinToString(",") { it.id.toString() })
+                    .putLong(GalleryScanWorker.KEY_PENDING_BEST_ID, bestId)
+                    .putLong(GalleryScanWorker.KEY_PENDING_SAVING, savingBytes)
+                    .apply()
+            }
+            scanNotifier.notifyScanDone(groupCount = 3, savingBytes = 52_428_800L, sampleUri = sampleUri)
+        }
+    }
+
+    fun debugTriggerScreenshotNotif() {
+        scanNotifier.notifyScreenshotFavorite(
+            photoId = -1L,
+            displayName = "테스트_스크린샷.png",
+        )
+    }
+
+    fun debugTriggerScanDoneNotif() {
+        scanNotifier.notifyScanDone(groupCount = 3, savingBytes = 52_428_800L)
+    }
+
+    fun debugTogglePremium() {
+        adGate.setPremium(!adGate.isPremium())
+        _isPremium.value = adGate.isPremium()
+    }
+
+    // ── 카테고리 정의 ────────────────────────────────────────────────────────
+
+    companion object {
+        private const val KEY_STATE = "ui_state"
+        private const val KEY_FILTER = "scan_filter"
+        private const val KEY_CATEGORIES = "categories"
+        private const val KEY_SORT_ORDER = "sort_order"
+        private const val KEY_SELECTED_GROUP_ID = "selected_group_id"
+        private const val ETA_WINDOW = 30
+
+        internal fun applyFilter(
+            groups: List<PhotoGroup>,
+            photoLabels: Map<Long, List<String>>,
+            selectedCategories: Set<String>,
+        ): List<PhotoGroup> {
+            if (selectedCategories.isEmpty()) return groups
+            return groups.filter { group ->
+                selectedCategories.all { category ->
+                    group.photos.any { photo ->
+                        val labels = photoLabels[photo.id] ?: emptyList()
+                        CATEGORY_LABELS[category]?.any { l ->
+                            labels.any { it.equals(l, ignoreCase = true) }
+                        } == true
+                    }
+                }
+            }
+        }
+
+        val CATEGORY_LABELS = linkedMapOf(
+            "인물" to setOf("Person", "Face", "Human", "People", "Man", "Woman", "Child", "Forehead", "Smile", "Selfie", "Hair"),
+            "음식" to setOf("Food", "Dish", "Meal", "Cuisine", "Drink", "Ingredient", "Fast food", "Recipe", "Baking", "Vegetable", "Fruit", "Snack"),
+            "풍경" to setOf("Sky", "Mountain", "Landscape", "Nature", "Beach", "Ocean", "Sea", "Forest", "Tree", "Flower", "River", "Lake", "Sunrise", "Sunset", "Cloud", "Field"),
+            "동물" to setOf("Animal", "Dog", "Cat", "Bird", "Fish", "Pet", "Wildlife", "Mammal", "Insect", "Reptile"),
+            "스크린샷" to setOf("Screenshot", "Font", "Software", "Display device", "Text", "Multimedia", "Technology"),
+            "건물·실내" to setOf("Building", "Architecture", "Interior design", "Room", "House", "Furniture", "Urban area", "Street"),
+        )
+    }
+}
+
+sealed class UiState : Parcelable {
+    @Parcelize
+    data object Idle : UiState()
+
+    @Parcelize
+    data class Scanning(
+        val current: Int = 0,
+        val total: Int = 0,
+        val label: String = "",
+        val isLabelingPhase: Boolean = false,
+        val startedAtMs: Long = 0L,
+        val etaMs: Long = 0L,
+    ) : UiState()
+
+    @Parcelize
+    data class Done(val groups: List<PhotoGroup>, val totalSavingBytes: Long) : UiState()
+
+    @Parcelize
+    data class Error(val message: String) : UiState()
+}
+
+sealed interface MainEvent {
+    data class RequestSystemDelete(val intentSender: IntentSender) : MainEvent
+    data object ShowRewardedAdDialog : MainEvent
+    data object ShowPremiumPrompt : MainEvent
+}

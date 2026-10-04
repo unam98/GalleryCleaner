@@ -6,15 +6,32 @@
     <string name="tab_favorites">즐겨찾기</string>
 
     <!-- MainScreen -->
-    <string name="idle_subtitle">중복·유사 사진과 영상을 찾아\n소중한 저장 공간을 확보하세요</string>
+    <string name="idle_subtitle">중복된 사진·영상을 찾아 정리해요</string>
+    <string name="idle_subtitle_detail">베스트 사진은 자동으로 남겨드려요</string>
+    <string name="ad_load_failed">지금은 광고를 불러올 수 없어요. 잠시 후 다시 시도해주세요.</string>
+    <string name="ad_loading">광고 준비 중…</string>
+    <string name="home_privacy_note">내 사진은 내 폰 밖으로 나가지 않아요</string>
+    <string name="scan_button_label">스캔</string>
+    <string name="grant_access_button_label">권한 허용</string>
+    <string name="storage_label">저장공간</string>
+    <string name="storage_measuring">측정 중…</string>
+    <string name="storage_status_critical">저장공간이 거의 다 찼어요 · 지금 정리해보세요</string>
+    <string name="storage_status_warning">저장공간이 얼마 남지 않았어요</string>
+    <string name="storage_status_ok">아직 여유 있지만, 미리 정리해두면 좋아요</string>
     <string name="feature_auto_detect">중복·유사 사진 자동 탐지</string>
     <string name="feature_video_clean">중복 영상·짧은 클립 정리</string>
     <string name="feature_favorite_protect">즐겨찾기로 실수 삭제 방지</string>
+
+    <!-- OnboardingScreen -->
+    <string name="onboarding_title">시작하기 전에</string>
+    <string name="onboarding_subtitle">사진을 정리하려면 미디어 접근 권한이 필요해요.\n어떻게 쓰이는지 먼저 알려드릴게요.</string>
+    <string name="onboarding_privacy_note">사진과 영상은 기기 안에서만 분석돼요. 서버로 전송되거나 외부에 저장되지 않아요.</string>
+    <string name="onboarding_cta">알겠어요, 계속하기</string>
+
     <string name="rescan">재스캔</string>
     <string name="settings">설정</string>
-    <string name="grant_media_access">미디어 접근 허용</string>
     <string name="start_scan">스캔 시작</string>
-    <string name="error_message">오류: %1$s</string>
+    <string name="error_message">스캔 중 문제가 생겼어요. 다시 시도해주세요.</string>
     <string name="retry">다시 시도</string>
     <string name="loading_photos">사진 목록 불러오는 중…</string>
     <string name="labeling_phase">AI 분석 중…</string>
@@ -32,25 +49,29 @@
     <string name="potential_saving_label">절약 가능 용량</string>
     <string name="groups_filtered">전체 %1$d그룹 중 %2$d개 표시</string>
     <string name="groups_found">그룹 %1$d개 발견</string>
-    <string name="category_label">카테고리</string>
     <string name="analyzing">분석 중…</string>
     <string name="filter_all">전체</string>
-    <string name="no_matching_groups">조건에 맞는 그룹이 없습니다</string>
-    <string name="no_duplicates">중복 사진이 없습니다</string>
+    <string name="no_matching_groups">조건에 맞는 그룹이 없어요</string>
+    <string name="no_duplicates">중복 사진이 없어요</string>
     <string name="keyword_hint">키워드 검색 (예: 강아지, sky)</string>
     <string name="clear">지우기</string>
-    <string name="quick_delete_desc">BEST 제외 삭제</string>
+    <string name="quick_delete_desc">베스트 제외하고 삭제</string>
+    <string name="quick_delete_confirm_title">%1$d장을 삭제할까요?</string>
+    <string name="quick_delete_confirm_desc">베스트 사진은 남기고 나머지를 지워요. %1$s를 확보할 수 있어요.</string>
+    <string name="quick_delete_confirm_action">삭제</string>
+    <string name="cancel">취소</string>
 
     <!-- GroupDetailScreen -->
     <string name="group_title_photo">%1$d장 그룹</string>
     <string name="group_title_video">%1$d개 그룹</string>
     <string name="back">뒤로</string>
-    <string name="delete_btn_photo">%1$d장 삭제  ·  %2$s 절약</string>
-    <string name="delete_btn_video">%1$d개 삭제  ·  %2$s 절약</string>
-    <string name="favorite_protected">즐겨찾기 설정 — 삭제 불가</string>
-    <string name="best_not_selected">BEST — 삭제 선택 안됨</string>
-    <string name="delete_selected">삭제 선택됨 ✓</string>
-    <string name="delete_not_selected">삭제 선택 안됨</string>
+    <string name="delete_btn_photo">%1$d장 삭제 · %2$s 절약</string>
+    <string name="delete_btn_video">%1$d개 삭제 · %2$s 절약</string>
+    <string name="best_badge">베스트</string>
+    <string name="favorite_protected">즐겨찾기한 사진은 삭제할 수 없어요</string>
+    <string name="best_not_selected">베스트 사진 · 삭제 안 함</string>
+    <string name="delete_selected">삭제 예정 ✓</string>
+    <string name="delete_not_selected">삭제 안 함</string>
     <string name="favorite_add">즐겨찾기</string>
     <string name="favorite_remove">즐겨찾기 해제</string>
     <string name="close">닫기</string>
@@ -59,7 +80,6 @@
     <string name="scan_filter_title">스캔 범위 설정</string>
     <string name="media_type_section">미디어 유형</string>
     <string name="period_section">기간</string>
-    <string name="photo_count_section">사진 장수</string>
     <string name="min_size_section">최소 파일 크기</string>
 
     <!-- SettingsSheet -->
@@ -83,19 +103,33 @@
     <string name="screenshot_default_name">스크린샷</string>
     <string name="notif_screenshot_marked">⭐ 중요 사진으로 설정됐어요</string>
 
-    <!-- FavoritesScreen -->
-    <string name="favorites_empty">즐겨찾기한 사진이 없어요</string>
-    <string name="favorites_no_scan">스캔 후 즐겨찾기한 사진이\n여기에 표시됩니다</string>
+    <!-- GroupListScreen 정렬 -->
+    <string name="sort_saving">용량</string>
+    <string name="sort_count">개수</string>
+    <string name="sort_date">날짜</string>
 
-    <!-- Tournament (이상형 월드컵) -->
-    <string name="tournament_start">이상형 월드컵</string>
-    <string name="tournament_title">이상형 월드컵</string>
+    <!-- BattlePick (사진 대결) -->
+    <string name="tournament_start">사진 대결</string>
+    <string name="tournament_title">사진 대결</string>
+    <string name="tournament_title_queued">사진 대결 · %1$d/%2$d 그룹</string>
+    <string name="tournament_skip_group">다음 그룹</string>
     <string name="tournament_round">Round %1$d / %2$d</string>
     <string name="tournament_instruction">더 마음에 드는 사진을 선택하세요</string>
     <string name="tournament_pick_hint">선택</string>
     <string name="tournament_auto_advance">자동 진출</string>
     <string name="tournament_result_title">🏆 최종 선택된 사진</string>
+    <string name="tournament_winner_badge">🏆 우승</string>
     <string name="tournament_result_desc">%1$d장 중 가장 마음에 드는 사진</string>
     <string name="tournament_keep_winner">이 사진만 남기기 (%1$d장 삭제)</string>
+    <string name="tournament_keep_winner_next">이 사진만 남기고 다음 그룹으로 (%1$d장 삭제)</string>
     <string name="tournament_close_no_delete">삭제하지 않고 닫기</string>
+
+    <!-- 바텀 네비 "대결" 탭 -->
+    <string name="tab_tournament">대결</string>
+    <string name="tournament_tab_title">사진 대결로 한 번에 정리</string>
+    <string name="tournament_tab_subtitle">뭘 지울지 고민하지 마세요.\n둘 중 마음에 드는 사진만 고르면 나머지는 자동으로 정리돼요.</string>
+    <string name="tournament_groups_waiting">%1$d개 그룹 대기 중</string>
+    <string name="tournament_tab_cta">대결 시작</string>
+    <string name="tournament_tab_empty_no_scan">먼저 스캔을 실행해주세요</string>
+    <string name="tournament_tab_empty_no_groups">대결할 만한 그룹이 없어요\n(2장 이상 모인 사진 그룹만 가능해요)</string>
 </resources>
