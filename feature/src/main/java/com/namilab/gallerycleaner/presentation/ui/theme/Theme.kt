@@ -11,18 +11,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 private val LightColorScheme = lightColorScheme(
-    primary = iOSBlue,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFEBF3FF),
-    onPrimaryContainer = Color(0xFF004AAE),
+    primary = BrandFresh,
+    // 흰 글씨(대비 2.35:1)보다 잉크(다크) 텍스트(7.56:1)가 대비가 훨씬 좋다.
+    onPrimary = iOSLabel,
+    primaryContainer = Color(0xFFD6F1FA),
+    onPrimaryContainer = Color(0xFF0A4E63),
     secondary = iOSSecondaryLabel,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFF2F2F7),
-    onSecondaryContainer = Color(0xFF3A3A3C),
+    secondaryContainer = iOSTertiaryGroupedBg,
+    onSecondaryContainer = Color(0xFF3A3025),
     tertiary = iOSOrange,
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFF3D9),
-    onTertiaryContainer = Color(0xFF7A4800),
+    onTertiary = iOSLabel,
+    tertiaryContainer = Color(0xFFFFF0D2),
+    onTertiaryContainer = Color(0xFF7A5300),
     background = iOSGroupedBg,
     onBackground = iOSLabel,
     surface = iOSSecondaryGroupedBg,
@@ -39,17 +40,18 @@ private val LightColorScheme = lightColorScheme(
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = iOSBlueDark,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF003D8A),
-    onPrimaryContainer = Color(0xFF99C9FF),
+    primary = BrandFreshDark,
+    // 흰 글씨(대비 1.99:1)보다 잉크 텍스트(8.93:1)가 대비가 훨씬 좋다.
+    onPrimary = iOSLabel,
+    primaryContainer = Color(0xFF0E4258),
+    onPrimaryContainer = Color(0xFFB8E6F5),
     secondary = iOSSecondaryLabelDark,
     onSecondary = Color.Black,
     secondaryContainer = iOSTertiaryGroupedBgDark,
     onSecondaryContainer = Color(0xFFEBEBF5),
     tertiary = iOSOrangeDark,
     onTertiary = Color.Black,
-    tertiaryContainer = Color(0xFF3A2D00),
+    tertiaryContainer = Color(0xFF4A3200),
     onTertiaryContainer = Color(0xFFFFE08A),
     background = iOSGroupedBgDark,
     onBackground = iOSLabelDark,
